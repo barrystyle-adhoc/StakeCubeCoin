@@ -31,7 +31,7 @@ int GetOffsetFromUtc()
 #endif
 }
 
-MasternodeList::MasternodeList(const PlatformStyle* platformStyle, QWidget* parent) :
+MasternodeList::MasternodeList(QWidget* parent) :
     QWidget(parent),
     ui(new Ui::MasternodeList),
     clientModel(0),
@@ -42,6 +42,11 @@ MasternodeList::MasternodeList(const PlatformStyle* platformStyle, QWidget* pare
     mnListChanged(true)
 {
     ui->setupUi(this);
+
+    GUIUtil::setFont({ui->label_count_2,
+                      ui->countLabelDIP3
+                     }, GUIUtil::FontWeight::Bold, 14);
+    GUIUtil::setFont({ui->label_filter_2}, GUIUtil::FontWeight::Normal, 15);
 
     int columnAddressWidth = 200;
     int columnStatusWidth = 80;
@@ -74,9 +79,13 @@ MasternodeList::MasternodeList(const PlatformStyle* platformStyle, QWidget* pare
 
     ui->tableWidgetMasternodesDIP3->setContextMenuPolicy(Qt::CustomContextMenu);
 
+#if QT_VERSION >= 0x040700
+    ui->filterLineEditDIP3->setPlaceholderText(tr("Filter by any property (e.g. address or protx hash)"));
+#endif
+
     QAction* copyProTxHashAction = new QAction(tr("Copy ProTx Hash"), this);
     QAction* copyCollateralOutpointAction = new QAction(tr("Copy Collateral Outpoint"), this);
-    contextMenuDIP3 = new QMenu();
+    contextMenuDIP3 = new QMenu(this);
     contextMenuDIP3->addAction(copyProTxHashAction);
     contextMenuDIP3->addAction(copyCollateralOutpointAction);
     connect(ui->tableWidgetMasternodesDIP3, SIGNAL(customContextMenuRequested(const QPoint&)), this, SLOT(showContextMenuDIP3(const QPoint&)));
@@ -87,6 +96,8 @@ MasternodeList::MasternodeList(const PlatformStyle* platformStyle, QWidget* pare
     timer = new QTimer(this);
     connect(timer, SIGNAL(timeout()), this, SLOT(updateDIP3ListScheduled()));
     timer->start(1000);
+
+    GUIUtil::updateFonts();
 }
 
 MasternodeList::~MasternodeList()
@@ -133,7 +144,7 @@ void MasternodeList::updateDIP3ListScheduled()
     // after filter was last changed unless we want to force the update.
     if (fFilterUpdatedDIP3) {
         int64_t nSecondsToWait = nTimeFilterUpdatedDIP3 - GetTime() + MASTERNODELIST_FILTER_COOLDOWN_SECONDS;
-        ui->countLabelDIP3->setText(QString::fromStdString(strprintf("Please wait... %d", nSecondsToWait)));
+        ui->countLabelDIP3->setText(tr("Please wait...") + " " + QString::number(nSecondsToWait));
 
         if (nSecondsToWait <= 0) {
             updateDIP3List();
@@ -175,7 +186,7 @@ void MasternodeList::updateDIP3List()
     LOCK(cs_dip3list);
 
     QString strToFilter;
-    ui->countLabelDIP3->setText("Updating...");
+    ui->countLabelDIP3->setText(tr("Updating..."));
     ui->tableWidgetMasternodesDIP3->setSortingEnabled(false);
     ui->tableWidgetMasternodesDIP3->clearContents();
     ui->tableWidgetMasternodesDIP3->setRowCount(0);
@@ -295,7 +306,7 @@ void MasternodeList::on_filterLineEditDIP3_textChanged(const QString& strFilterI
     strCurrentFilterDIP3 = strFilterIn;
     nTimeFilterUpdatedDIP3 = GetTime();
     fFilterUpdatedDIP3 = true;
-    ui->countLabelDIP3->setText(QString::fromStdString(strprintf("Please wait... %d", MASTERNODELIST_FILTER_COOLDOWN_SECONDS)));
+    ui->countLabelDIP3->setText(tr("Please wait...") + " " + QString::number(MASTERNODELIST_FILTER_COOLDOWN_SECONDS));
 }
 
 void MasternodeList::on_checkBoxMyMasternodesOnly_stateChanged(int state)

@@ -20,7 +20,6 @@
 
 class AddressTableModel;
 class OptionsModel;
-class PlatformStyle;
 class RecentRequestsTableModel;
 class TransactionTableModel;
 class WalletModelTransaction;
@@ -103,7 +102,7 @@ class WalletModel : public QObject
     Q_OBJECT
 
 public:
-    explicit WalletModel(const PlatformStyle *platformStyle, CWallet *wallet, OptionsModel *optionsModel, QObject *parent = 0);
+    explicit WalletModel(CWallet* wallet, OptionsModel* optionsModel, QObject* parent = 0);
     ~WalletModel();
 
     enum StatusCode // Returned by sendCoins
@@ -137,7 +136,7 @@ public:
     CAmount getUnconfirmedBalance() const;
     CAmount getImmatureBalance() const;
     CAmount getAnonymizableBalance(bool fSkipDenominated, bool fSkipUnconfirmed) const;
-    CAmount getAnonymizedBalance() const;
+    CAmount getAnonymizedBalance(const CCoinControl* coinControl = nullptr) const;
     CAmount getDenominatedBalance(bool unconfirmed) const;
     CAmount getNormalizedAnonymizedBalance() const;
     CAmount getAverageAnonymizedRounds() const;
@@ -231,6 +230,7 @@ public:
     int getNumISLocks() const;
 
     int getRealOutpointPrivateSendRounds(const COutPoint& outpoint) const;
+    bool isFullyMixed(const COutPoint& outpoint) const;
 
 private:
     CWallet *wallet;

@@ -487,7 +487,7 @@ public:
     CAmount GetAvailableWatchOnlyCredit(const bool fUseCache=true) const;
     CAmount GetChange() const;
 
-    CAmount GetAnonymizedCredit(bool fUseCache=true) const;
+    CAmount GetAnonymizedCredit(const CCoinControl* coinControl = nullptr) const;
     CAmount GetDenominatedCredit(bool unconfirmed, bool fUseCache=true) const;
 
     void GetAmounts(std::list<COutputEntry>& listReceived,
@@ -505,7 +505,6 @@ public:
     bool IsTrusted() const;
 
     int64_t GetTxTime() const;
-    int GetRequestCount() const;
 
     // RelayWalletTransaction may only be called if fBroadcastTransactions!
     bool RelayWalletTransaction(CConnman* connman);
@@ -551,6 +550,16 @@ public:
 
     bool operator==(const CInputCoin& rhs) const {
         return outpoint == rhs.outpoint;
+    }
+};
+
+struct CompareInputCoinBIP69
+{
+    inline bool operator()(const CInputCoin& a, const CInputCoin& b) const
+    {
+        // Note: CInputCoin-s are essentially inputs, their txouts are used for informational purposes only
+        // that's why we use CompareInputBIP69 to sort them in a BIP69 compliant way.
+        return CompareInputBIP69()(CTxIn(a.outpoint), CTxIn(b.outpoint));
     }
 };
 
@@ -808,6 +817,17 @@ private:
      */
     const CBlockIndex* m_last_block_processed;
 
+    /** Pulled from wallet DB ("ps_salt") and used when mixing a random number of rounds.
+     *  This salt is needed to prevent an attacker from learning how many extra times
+     *  the input was mixed based only on information in the blockchain.
+     */
+    uint256 nPrivateSendSalt;
+
+    /**
+     * Fetches PrivateSend salt from database or generates and saves a new one if no salt was found in the db
+     */
+    void InitPrivateSendSalt();
+
 public:
     /*
      * Main wallet lock.
@@ -882,7 +902,6 @@ public:
 
     int64_t nOrderPosNext;
     uint64_t nAccountingEntryNumber;
-    std::map<uint256, int> mapRequestCount;
 
     std::map<CTxDestination, CAddressBookData> mapAddressBook;
 
@@ -941,6 +960,7 @@ public:
     int GetCappedOutpointPrivateSendRounds(const COutPoint& outpoint) const;
 
     bool IsDenominated(const COutPoint& outpoint) const;
+    bool IsFullyMixed(const COutPoint& outpoint) const;
 
     bool IsSpent(const uint256& hash, unsigned int n) const;
 
@@ -1052,7 +1072,7 @@ public:
     CAmount GetLegacyBalance(const isminefilter& filter, int minDepth, const std::string* account, const bool fAddLocked) const;
 
     CAmount GetAnonymizableBalance(bool fSkipDenominated = false, bool fSkipUnconfirmed = true) const;
-    CAmount GetAnonymizedBalance() const;
+    CAmount GetAnonymizedBalance(const CCoinControl* coinControl = nullptr) const;
     float GetAverageAnonymizedRounds() const;
     CAmount GetNormalizedAnonymizedBalance() const;
     CAmount GetDenominatedBalance(bool unconfirmed=false) const;
@@ -1136,16 +1156,6 @@ public:
     bool DelAddressBook(const CTxDestination& address);
 
     const std::string& GetAccountName(const CScript& scriptPubKey) const;
-
-    void Inventory(const uint256 &hash) override
-    {
-        {
-            LOCK(cs_wallet);
-            std::map<uint256, int>::iterator mi = mapRequestCount.find(hash);
-            if (mi != mapRequestCount.end())
-                (*mi).second++;
-        }
-    }
 
     void GetScriptForMining(std::shared_ptr<CReserveScript> &script);
 

@@ -23,7 +23,7 @@
 
 static const uint64_t GB_BYTES = 1000000000LL;
 /* Minimum free space (in GB) needed for data directory */
-static const uint64_t BLOCK_CHAIN_SIZE = 15;
+static const uint64_t BLOCK_CHAIN_SIZE = 30;
 /* Minimum free space (in GB) needed for data directory when pruned; Does not include prune target */
 static const uint64_t CHAIN_STATE_SIZE = 1;
 /* Total required space (in GB) depending on user choice (prune, not prune) */
@@ -205,6 +205,8 @@ bool Intro::pickDataDirectory()
     {
         /* Let the user choose one */
         Intro intro;
+        GUIUtil::disableMacFocusRect(&intro);
+        GUIUtil::loadStyleSheet(&intro);
         intro.setDataDirectory(dataDirDefaultCurrent);
         intro.setWindowIcon(QIcon(":icons/bitcoin"));
 
@@ -251,7 +253,7 @@ void Intro::setStatus(int status, const QString &message, quint64 bytesAvailable
         break;
     case FreespaceChecker::ST_ERROR:
         ui->errorMessage->setText(tr("Error") + ": " + message);
-        ui->errorMessage->setStyleSheet("QLabel { color: #800000 }");
+        ui->errorMessage->setStyleSheet(GUIUtil::getThemedStyleQString(GUIUtil::ThemedStyle::TS_ERROR));
         break;
     }
     /* Indicate number of bytes available */
@@ -263,7 +265,7 @@ void Intro::setStatus(int status, const QString &message, quint64 bytesAvailable
         if(bytesAvailable < requiredSpace * GB_BYTES)
         {
             freeString += " " + tr("(of %1 GB needed)").arg(requiredSpace);
-            ui->freeSpace->setStyleSheet("QLabel { color: #800000 }");
+            ui->freeSpace->setStyleSheet(GUIUtil::getThemedStyleQString(GUIUtil::ThemedStyle::TS_ERROR));
         } else {
             ui->freeSpace->setStyleSheet("");
         }

@@ -12,7 +12,6 @@
 
 #include <qt/bantablemodel.h>
 #include <qt/clientmodel.h>
-#include <qt/platformstyle.h>
 #include <chainparams.h>
 #include <netbase.h>
 #include <rpc/server.h>
@@ -39,6 +38,7 @@
 #include <QTime>
 #include <QTimer>
 #include <QStringList>
+#include <QStyledItemDelegate>
 
 #if QT_VERSION < 0x050000
 #include <QUrl>
@@ -61,17 +61,6 @@ const QString ZAPTXES1("-zapwallettxes=1 -persistmempool=0");
 const QString ZAPTXES2("-zapwallettxes=2 -persistmempool=0");
 const QString UPGRADEWALLET("-upgradewallet");
 const QString REINDEX("-reindex");
-
-const struct {
-    const char *url;
-    const char *source;
-} ICON_MAPPING[] = {
-    {"cmd-request", "tx_input"},
-    {"cmd-reply", "tx_output"},
-    {"cmd-error", "tx_output"},
-    {"misc", "tx_inout"},
-    {nullptr, nullptr}
-};
 
 namespace {
 
@@ -453,20 +442,29 @@ void RPCExecutor::request(const QString &command)
     }
 }
 
-RPCConsole::RPCConsole(const PlatformStyle *_platformStyle, QWidget *parent) :
-    QWidget(parent),
+RPCConsole::RPCConsole(QWidget* parent) :
+    QWidget(parent, Qt::Window),
     ui(new Ui::RPCConsole),
     clientModel(0),
     historyPtr(0),
-    platformStyle(_platformStyle),
     peersTableContextMenu(0),
     banTableContextMenu(0),
     consoleFontSize(0)
 {
     ui->setupUi(this);
 
-    /* Open CSS when configured */
-    this->setStyleSheet(GUIUtil::loadStyleSheet());
+    GUIUtil::setFont({ui->label_9,
+                      ui->labelNetwork,
+                      ui->label_10,
+                      ui->labelMempoolTitle,
+                      ui->peerHeading,
+                      ui->label_repair_header,
+                      ui->banHeading
+                     }, GUIUtil::FontWeight::Bold, 16);
+
+    GUIUtil::updateFonts();
+
+    GUIUtil::disableMacFocusRect(this);
 
     QSettings settings;
     if (!restoreGeometry(settings.value("RPCConsoleWindowGeometry").toByteArray())) {
@@ -476,13 +474,7 @@ RPCConsole::RPCConsole(const PlatformStyle *_platformStyle, QWidget *parent) :
 
     ui->openDebugLogfileButton->setToolTip(ui->openDebugLogfileButton->toolTip().arg(tr(PACKAGE_NAME)));
 
-    if (platformStyle->getImagesOnButtons()) {
-        ui->openDebugLogfileButton->setIcon(QIcon(":/icons/export"));
-    }
-    // Needed on Mac also
-    ui->clearButton->setIcon(QIcon(":/icons/console_remove"));
-    ui->fontBiggerButton->setIcon(QIcon(":/icons/fontbigger"));
-    ui->fontSmallerButton->setIcon(QIcon(":/icons/fontsmaller"));
+    setButtonIcons();
 
     // Install event filter for up and down arrow
     ui->lineEdit->installEventFilter(this);
@@ -523,7 +515,15 @@ RPCConsole::RPCConsole(const PlatformStyle *_platformStyle, QWidget *parent) :
 
     ui->peerHeading->setText(tr("Select a peer to view detailed information."));
 
-    consoleFontSize = settings.value(fontSizeSettingsKey, QFontInfo(QFont()).pointSize()).toInt();
+    consoleFontSize = settings.value(fontSizeSettingsKey, QFontInfo(GUIUtil::getFontNormal()).pointSize()).toInt();
+
+    pageButtons.addButton(ui->btnInfo, pageButtons.buttons().size());
+    pageButtons.addButton(ui->btnConsole, pageButtons.buttons().size());
+    pageButtons.addButton(ui->btnNetTraffic, pageButtons.buttons().size());
+    pageButtons.addButton(ui->btnPeers, pageButtons.buttons().size());
+    pageButtons.addButton(ui->btnRepair, pageButtons.buttons().size());
+    connect(&pageButtons, SIGNAL(buttonClicked(int)), this, SLOT(showPage(int)));
+
     clear();
 }
 
@@ -590,17 +590,14 @@ void RPCConsole::setClientModel(ClientModel *model)
         setNumConnections(model->getNumConnections());
         connect(model, SIGNAL(numConnectionsChanged(int)), this, SLOT(setNumConnections(int)));
 
-        setNumBlocks(model->getNumBlocks(), model->getLastBlockDate(), model->getVerificationProgress(nullptr), false);
-        connect(model, SIGNAL(numBlocksChanged(int,QDateTime,double,bool)), this, SLOT(setNumBlocks(int,QDateTime,double,bool)));
+        setNumBlocks(model->getNumBlocks(), model->getLastBlockDate(), model->getLastBlockHash(), model->getVerificationProgress(nullptr), false);
+        connect(model, SIGNAL(numBlocksChanged(int,QDateTime,QString,double,bool)), this, SLOT(setNumBlocks(int,QDateTime,QString,double,bool)));
 
         updateNetworkState();
         connect(model, SIGNAL(networkActiveChanged(bool)), this, SLOT(setNetworkActive(bool)));
 
         connect(model, SIGNAL(masternodeListChanged()), this, SLOT(updateMasternodeCount()));
         clientModel->refreshMasternodeList();
-
-        updateTrafficStats(model->getTotalBytesRecv(), model->getTotalBytesSent());
-        connect(model, SIGNAL(bytesChanged(quint64,quint64)), this, SLOT(updateTrafficStats(quint64, quint64)));
 
         connect(model, SIGNAL(mempoolSizeChanged(long,size_t)), this, SLOT(setMempoolSize(long,size_t)));
         connect(model, SIGNAL(islockCountChanged(size_t)), this, SLOT(setInstantSendLockCount(size_t)));
@@ -657,7 +654,7 @@ void RPCConsole::setClientModel(ClientModel *model)
         connect(model->getPeerTableModel(), SIGNAL(layoutChanged()), this, SLOT(peerLayoutChanged()));
         // peer table signal handling - cache selected node ids
         connect(model->getPeerTableModel(), SIGNAL(layoutAboutToBeChanged()), this, SLOT(peerLayoutAboutToChange()));
-        
+
         // set up ban table
         ui->banlistWidget->setModel(model->getBanTableModel());
         ui->banlistWidget->verticalHeader()->hide();
@@ -705,6 +702,9 @@ void RPCConsole::setClientModel(ClientModel *model)
         wordList << "help-console";
         wordList.sort();
         autoCompleter = new QCompleter(wordList, this);
+        autoCompleter->popup()->setItemDelegate(new QStyledItemDelegate(this));
+        autoCompleter->popup()->setObjectName("rpcAutoCompleter");
+        GUIUtil::loadStyleSheet(autoCompleter->popup());
         autoCompleter->setModelSorting(QCompleter::CaseSensitivelySortedModel);
         ui->lineEdit->setCompleter(autoCompleter);
         autoCompleter->popup()->installEventFilter(this);
@@ -834,26 +834,12 @@ void RPCConsole::clear(bool clearHistory)
     ui->lineEdit->clear();
     ui->lineEdit->setFocus();
 
-    // Add smoothly scaled icon images.
-    // (when using width/height on an img, Qt uses nearest instead of linear interpolation)
-    QString iconPath = ":/icons/";
-    QString iconName = "";
-
-    for(int i=0; ICON_MAPPING[i].url; ++i)
-    {
-        iconName = ICON_MAPPING[i].source;
-        ui->messagesWidget->document()->addResource(
-                    QTextDocument::ImageResource,
-                    QUrl(ICON_MAPPING[i].url),
-                    QImage(iconPath + iconName).scaled(QSize(consoleFontSize*2, consoleFontSize*2), Qt::IgnoreAspectRatio, Qt::SmoothTransformation));
-    }
-
     // Set default style sheet
-    QFontInfo fixedFontInfo(GUIUtil::fixedPitchFont());
+    QFontInfo fixedFontInfo(GUIUtil::getFontNormal());
     ui->messagesWidget->document()->setDefaultStyleSheet(
         QString(
                 "table { }"
-                "td.time { " + GUIUtil::getThemedStyleQString(GUIUtil::ThemedStyle::TS_SECONDARY) + " font-size: %2; padding-top: 3px; } "
+                "td.time { " + GUIUtil::getThemedStyleQString(GUIUtil::ThemedStyle::TS_SECONDARY) + " font-size: %2; } "
                 "td.message { " + GUIUtil::getThemedStyleQString(GUIUtil::ThemedStyle::TS_PRIMARY) + " font-family: %1; font-size: %2; white-space:pre-wrap; } "
                 "td.cmd-request, b { " + GUIUtil::getThemedStyleQString(GUIUtil::ThemedStyle::TS_COMMAND) + " } "
                 "td.cmd-error, .secwarning { " + GUIUtil::getThemedStyleQString(GUIUtil::ThemedStyle::TS_ERROR) + " }"
@@ -865,7 +851,7 @@ void RPCConsole::clear(bool clearHistory)
 #else
     QString clsKey = "Ctrl-L";
 #endif
-	 
+
     message(CMD_REPLY, (tr("Welcome to the %1 RPC console.").arg(tr(PACKAGE_NAME)) + "<br>" +
                         tr("Use up and down arrows to navigate history, and %1 to clear screen.").arg("<b>"+clsKey+"</b>") + "<br>" +
                         tr("Type %1 for an overview of available commands.").arg("<b>help</b>") + "<br>" +
@@ -890,7 +876,6 @@ void RPCConsole::message(int category, const QString &message, bool html)
     QString timeString = time.toString();
     QString out;
     out += "<table><tr><td class=\"time\" width=\"65\">" + timeString + "</td>";
-    out += "<td class=\"icon\" width=\"32\"><img src=\"" + categoryClass(category) + "\"></td>";
     out += "<td class=\"message " + categoryClass(category) + "\" valign=\"middle\">";
     if(html)
         out += message;
@@ -926,11 +911,12 @@ void RPCConsole::setNetworkActive(bool networkActive)
     updateNetworkState();
 }
 
-void RPCConsole::setNumBlocks(int count, const QDateTime& blockDate, double nVerificationProgress, bool headers)
+void RPCConsole::setNumBlocks(int count, const QDateTime& blockDate, const QString& blockHash, double nVerificationProgress, bool headers)
 {
     if (!headers) {
         ui->numberOfBlocks->setText(QString::number(count));
         ui->lastBlockTime->setText(blockDate.toString());
+        ui->lastBlockHash->setText(blockHash);
     }
 }
 
@@ -959,6 +945,24 @@ void RPCConsole::setMempoolSize(long numberOfTxs, size_t dynUsage)
 void RPCConsole::setInstantSendLockCount(size_t count)
 {
     ui->instantSendLockCount->setText(QString::number(count));
+}
+
+void RPCConsole::showPage(int index)
+{
+    std::vector<QWidget*> vecNormal;
+    QAbstractButton* btnActive = pageButtons.button(index);
+    for (QAbstractButton* button : pageButtons.buttons()) {
+        if (button != btnActive) {
+            vecNormal.push_back(button);
+        }
+    }
+
+    GUIUtil::setFont({btnActive}, GUIUtil::FontWeight::Bold, 16);
+    GUIUtil::setFont(vecNormal, GUIUtil::FontWeight::Normal, 16);
+    GUIUtil::updateFonts();
+
+    ui->stackedWidgetRPC->setCurrentIndex(index);
+    btnActive->setChecked(true);
 }
 
 void RPCConsole::on_lineEdit_returnPressed()
@@ -1045,11 +1049,11 @@ void RPCConsole::startExecutor()
     thread.start();
 }
 
-void RPCConsole::on_tabWidget_currentChanged(int index)
+void RPCConsole::on_stackedWidgetRPC_currentChanged(int index)
 {
-    if (ui->tabWidget->widget(index) == ui->tab_console)
+    if (ui->stackedWidgetRPC->widget(index) == ui->pageConsole)
         ui->lineEdit->setFocus();
-    else if (ui->tabWidget->widget(index) != ui->tab_peers)
+    else if (ui->stackedWidgetRPC->widget(index) != ui->pagePeers)
         clearSelectedNode();
 }
 
@@ -1073,12 +1077,6 @@ void RPCConsole::setTrafficGraphRange(TrafficGraphData::GraphRange range)
 {
     ui->trafficGraph->setGraphRangeMins(range);
     ui->lblGraphRange->setText(GUIUtil::formatDurationStr(TrafficGraphData::RangeMinutes[range] * 60));
-}
-
-void RPCConsole::updateTrafficStats(quint64 totalBytesIn, quint64 totalBytesOut)
-{
-    ui->lblBytesIn->setText(GUIUtil::formatBytes(totalBytesIn));
-    ui->lblBytesOut->setText(GUIUtil::formatBytes(totalBytesOut));
 }
 
 void RPCConsole::peerSelected(const QItemSelection &selected, const QItemSelection &deselected)
@@ -1207,6 +1205,14 @@ void RPCConsole::updateNodeDetail(const CNodeCombinedStats *stats)
     ui->detailWidget->show();
 }
 
+void RPCConsole::setButtonIcons()
+{
+    const QSize consoleButtonsSize(BUTTON_ICONSIZE * 0.8, BUTTON_ICONSIZE * 0.8);
+    GUIUtil::setIcon(ui->clearButton, "remove", GUIUtil::ThemedColor::RED, consoleButtonsSize);
+    GUIUtil::setIcon(ui->fontBiggerButton, "fontbigger", GUIUtil::ThemedColor::BLUE, consoleButtonsSize);
+    GUIUtil::setIcon(ui->fontSmallerButton, "fontsmaller", GUIUtil::ThemedColor::BLUE, consoleButtonsSize);
+}
+
 void RPCConsole::resizeEvent(QResizeEvent *event)
 {
     QWidget::resizeEvent(event);
@@ -1234,6 +1240,18 @@ void RPCConsole::hideEvent(QHideEvent *event)
     clientModel->getPeerTableModel()->stopAutoRefresh();
 }
 
+void RPCConsole::changeEvent(QEvent* e)
+{
+    if (e->type() == QEvent::StyleChange) {
+        clear();
+        ui->promptIcon->setHidden(GUIUtil::dashThemeActive());
+        // Adjust button icon colors on theme changes
+        setButtonIcons();
+    }
+
+    QWidget::changeEvent(e);
+}
+
 void RPCConsole::showPeersTableContextMenu(const QPoint& point)
 {
     QModelIndex index = ui->peerWidget->indexAt(point);
@@ -1252,7 +1270,7 @@ void RPCConsole::disconnectSelectedNode()
 {
     if(!g_connman)
         return;
-    
+
     // Get selected peer addresses
     QList<QModelIndex> nodes = GUIUtil::getEntryData(ui->peerWidget, PeerTableModel::NetNodeId);
     for(int i = 0; i < nodes.count(); i++)
@@ -1269,7 +1287,7 @@ void RPCConsole::banSelectedNode(int bantime)
 {
     if (!clientModel || !g_connman)
         return;
-    
+
     // Get selected peer addresses
     QList<QModelIndex> nodes = GUIUtil::getEntryData(ui->peerWidget, PeerTableModel::NetNodeId);
     for(int i = 0; i < nodes.count(); i++)
@@ -1334,5 +1352,5 @@ void RPCConsole::showOrHideBanTableIfRequired()
 
 void RPCConsole::setTabFocus(enum TabTypes tabType)
 {
-    ui->tabWidget->setCurrentIndex(tabType);
+    showPage(tabType);
 }

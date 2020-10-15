@@ -524,7 +524,7 @@ static std::string GetCrashInfoStr(const crash_info& ci, size_t spaces)
 static void PrintCrashInfo(const crash_info& ci)
 {
     auto str = GetCrashInfoStr(ci);
-    LogPrintf("%s", str);
+    LogPrintf("%s", str); /* Continued */
     fprintf(stderr, "%s", str.c_str());
     fflush(stderr);
 }
@@ -690,30 +690,32 @@ crash_info GetCrashInfoFromException(const std::exception_ptr& e)
     std::string type;
     std::string what;
 
+    auto getExceptionType = [&]() -> std::string {
+        auto type = abi::__cxa_current_exception_type();
+        if (type && (strlen(type->name()) > 0)) {
+            return DemangleSymbol(type->name());
+        }
+        return "<unknown>";
+    };
+
     try {
         // rethrow and catch the exception as there is no other way to reliably cast to the real type (not possible with RTTI)
         std::rethrow_exception(e);
     } catch (const std::exception& e) {
-        type = abi::__cxa_current_exception_type()->name();
+        type = getExceptionType();
         what = GetExceptionWhat(e);
     } catch (const std::string& e) {
-        type = abi::__cxa_current_exception_type()->name();
+        type = getExceptionType();
         what = GetExceptionWhat(e);
     } catch (const char* e) {
-        type = abi::__cxa_current_exception_type()->name();
+        type = getExceptionType();
         what = GetExceptionWhat(e);
     } catch (int e) {
-        type = abi::__cxa_current_exception_type()->name();
+        type = getExceptionType();
         what = GetExceptionWhat(e);
     } catch (...) {
-        type = abi::__cxa_current_exception_type()->name();
+        type = getExceptionType();
         what = "<unknown>";
-    }
-
-    if (type.empty()) {
-        type = "<unknown>";
-    } else {
-        type = DemangleSymbol(type);
     }
 
     ci.crashDescription += strprintf("type=%s, what=\"%s\"", type, what);

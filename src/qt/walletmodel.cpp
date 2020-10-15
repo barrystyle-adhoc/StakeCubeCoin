@@ -37,7 +37,7 @@
 #include <QTimer>
 
 
-WalletModel::WalletModel(const PlatformStyle *platformStyle, CWallet *_wallet, OptionsModel *_optionsModel, QObject *parent) :
+WalletModel::WalletModel(CWallet* _wallet, OptionsModel* _optionsModel, QObject* parent) :
     QObject(parent), wallet(_wallet), optionsModel(_optionsModel), addressTableModel(0),
     transactionTableModel(0),
     recentRequestsTableModel(0),
@@ -57,7 +57,7 @@ WalletModel::WalletModel(const PlatformStyle *platformStyle, CWallet *_wallet, O
     fForceCheckBalanceChanged = false;
 
     addressTableModel = new AddressTableModel(wallet, this);
-    transactionTableModel = new TransactionTableModel(platformStyle, wallet, this);
+    transactionTableModel = new TransactionTableModel(wallet, this);
     recentRequestsTableModel = new RecentRequestsTableModel(wallet, this);
 
     // This timer will be fired repeatedly to update the balance
@@ -89,9 +89,9 @@ CAmount WalletModel::getAnonymizableBalance(bool fSkipDenominated, bool fSkipUnc
     return wallet->GetAnonymizableBalance(fSkipDenominated, fSkipUnconfirmed);
 }
 
-CAmount WalletModel::getAnonymizedBalance() const
+CAmount WalletModel::getAnonymizedBalance(const CCoinControl* coinControl) const
 {
-    return wallet->GetAnonymizedBalance();
+    return wallet->GetAnonymizedBalance(coinControl);
 }
 
 CAmount WalletModel::getDenominatedBalance(bool unconfirmed) const
@@ -232,6 +232,11 @@ int WalletModel::getNumISLocks() const
 int WalletModel::getRealOutpointPrivateSendRounds(const COutPoint& outpoint) const
 {
     return wallet->GetRealOutpointPrivateSendRounds(outpoint);
+}
+
+bool WalletModel::isFullyMixed(const COutPoint& outpoint) const
+{
+    return wallet->IsFullyMixed(outpoint);
 }
 
 void WalletModel::updateAddressBook(const QString &address, const QString &label,

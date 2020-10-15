@@ -10,7 +10,6 @@
 #include <QWidget>
 #include <QKeyEvent>
 
-class PlatformStyle;
 class TransactionFilterProxy;
 class WalletModel;
 
@@ -34,7 +33,7 @@ class TransactionView : public QWidget
     Q_OBJECT
 
 public:
-    explicit TransactionView(const PlatformStyle *platformStyle, QWidget *parent = 0);
+    explicit TransactionView(QWidget* parent = 0);
 
     void setModel(WalletModel *model);
 
@@ -53,7 +52,6 @@ public:
     enum ColumnWidths {
         STATUS_COLUMN_WIDTH = 30,
         WATCHONLY_COLUMN_WIDTH = 23,
-        INSTANTSEND_COLUMN_WIDTH = 23,
         DATE_COLUMN_WIDTH = 120,
         TYPE_COLUMN_WIDTH = 240,
         AMOUNT_MINIMUM_COLUMN_WIDTH = 120,
@@ -67,7 +65,6 @@ private:
     QComboBox *dateWidget;
     QComboBox *typeWidget;
     QComboBox *watchOnlyWidget;
-    QComboBox *instantsendWidget;
     QLineEdit *search_widget;
     QLineEdit *amountWidget;
 
@@ -80,10 +77,12 @@ private:
     QAction *abandonAction;
 
     QWidget *createDateRangeWidget();
+    void updateCalendarWidgets();
 
     GUIUtil::TableViewLastColumnResizingFixer *columnResizingFixer;
 
     virtual void resizeEvent(QResizeEvent* event) override;
+    void changeEvent(QEvent* e) override;
 
     bool eventFilter(QObject *obj, QEvent *event) override;
 
@@ -101,6 +100,7 @@ private Q_SLOTS:
     void copyTxPlainText();
     void openThirdPartyTxUrl(QString url);
     void updateWatchOnlyColumn(bool fHaveWatchOnly);
+    void updatePrivateSendVisibility();
     void abandonTx();
 
 Q_SIGNALS:
@@ -116,7 +116,6 @@ public Q_SLOTS:
     void chooseDate(int idx);
     void chooseType(int idx);
     void chooseWatchonly(int idx);
-    void chooseInstantSend(int idx);
     void changedAmount();
     void changedSearch();
     void exportClicked();

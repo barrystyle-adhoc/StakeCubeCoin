@@ -9,13 +9,13 @@
 
 #include <QDialog>
 #include <QMessageBox>
+#include <QShowEvent>
 #include <QString>
 #include <QTimer>
 
 static const int MAX_SEND_POPUP_ENTRIES = 10;
 
 class ClientModel;
-class PlatformStyle;
 class SendCoinsEntry;
 class SendCoinsRecipient;
 
@@ -33,7 +33,7 @@ class SendCoinsDialog : public QDialog
     Q_OBJECT
 
 public:
-    explicit SendCoinsDialog(const PlatformStyle *platformStyle, QWidget *parent = 0);
+    explicit SendCoinsDialog(bool fPrivateSend = false, QWidget* parent = 0);
     ~SendCoinsDialog();
 
     void setClientModel(ClientModel *clientModel);
@@ -46,7 +46,6 @@ public:
     void setAddress(const QString &address);
     void pasteEntry(const SendCoinsRecipient &rv);
     bool handlePaymentRequest(const SendCoinsRecipient &recipient);
-    void setPrivateSend(bool privateSend);
 
 public Q_SLOTS:
     void clear();
@@ -64,7 +63,6 @@ private:
     bool fNewRecipientAllowed;
     void send(QList<SendCoinsRecipient> recipients);
     bool fFeeMinimized;
-    const PlatformStyle *platformStyle;
     bool fPrivateSend;
 
     // Process WalletModel::SendCoinsReturn and generate a pair consisting
@@ -75,6 +73,8 @@ private:
     void updateFeeMinimizedLabel();
     // Update the passed in CCoinControl with state from the GUI
     void updateCoinControlState(CCoinControl& ctrl);
+
+    void showEvent(QShowEvent* event);
 
 private Q_SLOTS:
     void on_sendButton_clicked();

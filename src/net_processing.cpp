@@ -1674,9 +1674,6 @@ void static ProcessGetData(CNode* pfrom, const CChainParams& chainparams, CConnm
 
             if (!push)
                 vNotFound.push_back(inv);
-
-            // Track requests for our stuff.
-            GetMainSignals().Inventory(inv.hash);
         }
     } // release cs_main
 
@@ -2341,7 +2338,7 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
         // Note: do not break the flow here
 
         if (pfrom->fMasternodeProbe && !pfrom->fFirstMessageIsMNAUTH) {
-            LogPrint(BCLog::NET, "connection is a masternode probe but first received message is not MNAUTH, peer=%d", pfrom->GetId());
+            LogPrint(BCLog::NET, "connection is a masternode probe but first received message is not MNAUTH, peer=%d\n", pfrom->GetId());
             pfrom->fDisconnect = true;
             return false;
         }
@@ -2511,9 +2508,6 @@ bool static ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStr
                     }
                 }
             }
-
-            // Track requests for our stuff
-            GetMainSignals().Inventory(inv.hash);
         }
         return true;
     }

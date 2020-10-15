@@ -36,14 +36,11 @@ UniValue privatesend(const JSONRPCRequest& request)
         throw JSONRPCError(RPC_INTERNAL_ERROR, "Client-side mixing is not supported on masternodes");
 
     if (!privateSendClient.fEnablePrivateSend) {
-        if (fLiteMode) {
-            // mixing is disabled by default in lite mode
-            throw JSONRPCError(RPC_INTERNAL_ERROR, "Mixing is disabled in lite mode, use -enableprivatesend command line option to enable mixing again");
-        } else if (!gArgs.GetBoolArg("-enableprivatesend", true)) {
+        if (!gArgs.GetBoolArg("-enableprivatesend", true)) {
             // otherwise it's on by default, unless cmd line option says otherwise
             throw JSONRPCError(RPC_INTERNAL_ERROR, "Mixing is disabled via -enableprivatesend=0 command line option, remove it to enable mixing again");
         } else {
-            // neither litemode nor enableprivatesend=false case,
+            // not enableprivatesend=false case,
             // most likely something bad happened and we disabled it while running the wallet
             throw JSONRPCError(RPC_INTERNAL_ERROR, "Mixing is disabled due to some internal error");
         }
@@ -97,7 +94,8 @@ UniValue getprivatesendinfo(const JSONRPCRequest& request)
                 "  \"max_sessions\": xxx,               (numeric) How many parallel mixing sessions can there be at once\n"
                 "  \"max_rounds\": xxx,                 (numeric) How many rounds to mix\n"
                 "  \"max_amount\": xxx,                 (numeric) Target PrivateSend balance in " + CURRENCY_UNIT + "\n"
-                "  \"max_denoms\": xxx,                 (numeric) How many inputs of each denominated amount to create\n"
+                "  \"denoms_goal\": xxx,                (numeric) How many inputs of each denominated amount to target\n"
+                "  \"denoms_hardcap\": xxx,             (numeric) Maximum limit of how many inputs of each denominated amount to create\n"
                 "  \"queue_size\": xxx,                 (numeric) How many queues there are currently on the network\n"
                 "  \"sessions\":                        (array of json objects)\n"
                 "    [\n"

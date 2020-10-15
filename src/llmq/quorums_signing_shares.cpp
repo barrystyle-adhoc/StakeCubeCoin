@@ -677,7 +677,7 @@ bool CSigSharesManager::ProcessPendingSigShares(CConnman& connman)
             if (!pubKeyShare.IsValid()) {
                 // this should really not happen (we already ensured we have the quorum vvec,
                 // so we should also be able to create all pubkey shares)
-                LogPrintf("CSigSharesManager::%s -- pubKeyShare is invalid, which should not be possible here");
+                LogPrintf("CSigSharesManager::%s -- pubKeyShare is invalid, which should not be possible here\n", __func__);
                 assert(false);
             }
 
@@ -1609,7 +1609,7 @@ void CSigSharesManager::Sign(const CQuorumCPtr& quorum, const uint256& id, const
 // causes all known sigShares to be re-announced
 void CSigSharesManager::ForceReAnnouncement(const CQuorumCPtr& quorum, Consensus::LLMQType llmqType, const uint256& id, const uint256& msgHash)
 {
-    if (!CLLMQUtils::IsAllMembersConnectedEnabled(llmqType)) {
+    if (CLLMQUtils::IsAllMembersConnectedEnabled(llmqType)) {
         return;
     }
 

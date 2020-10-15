@@ -153,6 +153,16 @@ QDateTime ClientModel::getLastBlockDate() const
     return QDateTime::fromTime_t(Params().GenesisBlock().GetBlockTime()); // Genesis block's time of current network
 }
 
+QString ClientModel::getLastBlockHash() const
+{
+    LOCK(cs_main);
+
+    if (chainActive.Tip())
+        return QString::fromStdString(chainActive.Tip()->GetBlockHash().ToString());
+
+    return QString::fromStdString(Params().GenesisBlock().GetHash().ToString()); // Genesis block's hash of current network
+}
+
 long ClientModel::getMempoolSize() const
 {
     return mempool.size();
@@ -188,7 +198,6 @@ void ClientModel::updateTimer()
     // the following calls will acquire the required lock
     Q_EMIT mempoolSizeChanged(getMempoolSize(), getMempoolDynamicUsage());
     Q_EMIT islockCountChanged(getInstantSentLockCount());
-    Q_EMIT bytesChanged(getTotalBytesRecv(), getTotalBytesSent());
 }
 
 void ClientModel::updateNumConnections(int numConnections)
@@ -344,6 +353,7 @@ static void BlockTipChanged(ClientModel *clientmodel, bool initialSync, const CB
         QMetaObject::invokeMethod(clientmodel, "numBlocksChanged", Qt::QueuedConnection,
                                   Q_ARG(int, pIndex->nHeight),
                                   Q_ARG(QDateTime, QDateTime::fromTime_t(pIndex->GetBlockTime())),
+                                  Q_ARG(QString, QString::fromStdString(pIndex->GetBlockHash().ToString())),
                                   Q_ARG(double, clientmodel->getVerificationProgress(pIndex)),
                                   Q_ARG(bool, fHeader));
         nLastUpdateNotification = now;

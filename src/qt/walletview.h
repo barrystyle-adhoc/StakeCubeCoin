@@ -13,7 +13,6 @@
 class BitcoinGUI;
 class ClientModel;
 class OverviewPage;
-class PlatformStyle;
 class ReceiveCoinsDialog;
 class SendCoinsDialog;
 class SendCoinsRecipient;
@@ -38,7 +37,7 @@ class WalletView : public QStackedWidget
     Q_OBJECT
 
 public:
-    explicit WalletView(const PlatformStyle *platformStyle, QWidget *parent);
+    explicit WalletView(QWidget* parent);
     ~WalletView();
 
     void setBitcoinGUI(BitcoinGUI *gui);
@@ -46,6 +45,7 @@ public:
         The client model represents the part of the core that communicates with the P2P network, and is wallet-agnostic.
     */
     void setClientModel(ClientModel *clientModel);
+    WalletModel *getWalletModel() { return walletModel; }
     /** Set the wallet model.
         The wallet model represents a bitcoin wallet, and offers access to the list of transactions, address book and sending
         functionality.
@@ -64,6 +64,7 @@ private:
     QWidget *transactionsPage;
     ReceiveCoinsDialog *receiveCoinsPage;
     SendCoinsDialog *sendCoinsPage;
+    SendCoinsDialog* privateSendCoinsPage;
     AddressBookPage *usedSendingAddressesPage;
     AddressBookPage *usedReceivingAddressesPage;
     MasternodeList *masternodeListPage;
@@ -72,7 +73,6 @@ private:
 
     QProgressDialog *progressDialog;
     QLabel *transactionSum;
-    const PlatformStyle *platformStyle;
 
 public Q_SLOTS:
     /** Switch to overview (home) page */

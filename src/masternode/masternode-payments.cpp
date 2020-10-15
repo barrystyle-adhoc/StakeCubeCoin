@@ -116,7 +116,7 @@ bool IsBlockValueValid(const CBlock& block, int nBlockHeight, CAmount blockRewar
         return false;
     }
 
-    if(!masternodeSync.IsSynced() || fLiteMode) {
+    if(!masternodeSync.IsSynced() || fDisableGovernance) {
         LogPrint(BCLog::MNPAYMENTS, "%s -- WARNING: Not enough data, checked superblock max bounds only\n", __func__);
         // not enough data for full checks but at least we know that the superblock limits were honored.
         // We rely on the network to have followed the correct chain in this case
@@ -149,7 +149,7 @@ bool IsBlockValueValid(const CBlock& block, int nBlockHeight, CAmount blockRewar
     // this actually also checks for correct payees and not only amount
     if (!CSuperblockManager::IsValid(*block.vtx[0], nBlockHeight, blockReward)) {
         // triggered but invalid? that's weird
-        LogPrintf("%s -- ERROR: Invalid superblock detected at height %d: %s", __func__, nBlockHeight, block.vtx[0]->ToString());
+        LogPrintf("%s -- ERROR: Invalid superblock detected at height %d: %s", __func__, nBlockHeight, block.vtx[0]->ToString()); /* Continued */
         // should NOT allow invalid superblocks, when superblocks are enabled
         strErrorRet = strprintf("invalid superblock detected at height %d", nBlockHeight);
         return false;
@@ -161,7 +161,7 @@ bool IsBlockValueValid(const CBlock& block, int nBlockHeight, CAmount blockRewar
 
 bool IsBlockPayeeValid(const CTransaction& txNew, int nBlockHeight, CAmount blockReward)
 {
-    if(fLiteMode) {
+    if(fDisableGovernance) {
         //there is no budget data to use to check anything, let's just accept the longest chain
         LogPrint(BCLog::MNPAYMENTS, "%s -- WARNING: Not enough data, skipping block payee checks\n", __func__);
         return true;
@@ -189,7 +189,7 @@ bool IsBlockPayeeValid(const CTransaction& txNew, int nBlockHeight, CAmount bloc
                 LogPrint(BCLog::GOBJECT, "%s -- Valid superblock at height %d: %s", __func__, nBlockHeight, txNew.ToString());
                 // continue validation, should also pay MN
             } else {
-                LogPrintf("%s -- ERROR: Invalid superblock detected at height %d: %s", __func__, nBlockHeight, txNew.ToString());
+                LogPrintf("%s -- ERROR: Invalid superblock detected at height %d: %s", __func__, nBlockHeight, txNew.ToString()); /* Continued */
                 // should NOT allow such superblocks, when superblocks are enabled
                 return false;
             }
@@ -207,7 +207,7 @@ bool IsBlockPayeeValid(const CTransaction& txNew, int nBlockHeight, CAmount bloc
         return true;
     }
 
-    LogPrintf("%s -- ERROR: Invalid masternode payment detected at height %d: %s", __func__, nBlockHeight, txNew.ToString());
+    LogPrintf("%s -- ERROR: Invalid masternode payment detected at height %d: %s", __func__, nBlockHeight, txNew.ToString()); /* Continued */
     return false;
 }
 
@@ -319,14 +319,22 @@ bool CMasternodePayments::GetBlockTxOuts(int nBlockHeight, CAmount blockReward, 
 {
     voutMasternodePaymentsRet.clear();
 
-    CAmount masternodeReward = GetMasternodePayment(nBlockHeight, blockReward);
-
     const CBlockIndex* pindex;
+    int nReallocActivationHeight{std::numeric_limits<int>::max()};
+
     {
         LOCK(cs_main);
         pindex = chainActive[nBlockHeight - 1];
+
+        const Consensus::Params& consensusParams = Params().GetConsensus();
+        if (VersionBitsState(pindex, consensusParams, Consensus::DEPLOYMENT_REALLOC, versionbitscache) == THRESHOLD_ACTIVE) {
+            nReallocActivationHeight = VersionBitsStateSinceHeight(pindex, consensusParams, Consensus::DEPLOYMENT_REALLOC, versionbitscache);
+        }
     }
     uint256 proTxHash;
+
+    CAmount masternodeReward = GetMasternodePayment(nBlockHeight, blockReward, nReallocActivationHeight);
+
     auto dmnPayee = deterministicMNManager->GetListForBlock(pindex).GetMNPayee();
     if (!dmnPayee) {
         return false;
