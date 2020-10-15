@@ -20,6 +20,7 @@
 
 #include <clientversion.h>
 #include <init.h>
+#include <interfaces/node.h>
 #include <util.h>
 
 #include <stdio.h>
@@ -32,7 +33,7 @@
 #include <QVBoxLayout>
 
 /** "Help message" or "About" dialog box */
-HelpMessageDialog::HelpMessageDialog(QWidget *parent, HelpMode helpMode) :
+HelpMessageDialog::HelpMessageDialog(interfaces::Node& node, QWidget *parent, HelpMode helpMode) :
     QDialog(parent),
     ui(new Ui::HelpMessageDialog)
 {
@@ -81,7 +82,7 @@ HelpMessageDialog::HelpMessageDialog(QWidget *parent, HelpMode helpMode) :
         cursor.insertText(header);
         cursor.insertBlock();
 
-        std::string strUsage = HelpMessage(HelpMessageMode::BITCOIN_QT);
+        std::string strUsage = node.helpMessage(HelpMessageMode::BITCOIN_QT);
         const bool showDebug = gArgs.GetBoolArg("-help-debug", false);
         strUsage += HelpMessageGroup(tr("UI Options:").toStdString());
         if (showDebug) {
@@ -95,9 +96,9 @@ HelpMessageDialog::HelpMessageDialog(QWidget *parent, HelpMode helpMode) :
         strUsage += HelpMessageOpt("-font-weight-normal", tr("Set the font weight for normal texts. Possible range %1 to %2 (default: %3)").arg(0).arg(8).arg(GUIUtil::weightToArg(GUIUtil::getFontWeightNormalDefault())).toStdString());
         strUsage += HelpMessageOpt("-lang=<lang>", tr("Set language, for example \"de_DE\" (default: system locale)").toStdString());
         strUsage += HelpMessageOpt("-min", tr("Start minimized").toStdString());
+        strUsage += HelpMessageOpt("-resetguisettings", tr("Reset all settings changed in the GUI").toStdString());
         strUsage += HelpMessageOpt("-rootcertificates=<file>", tr("Set SSL root certificates for payment request (default: -system-)").toStdString());
         strUsage += HelpMessageOpt("-splash", strprintf(tr("Show splash screen on startup (default: %u)").toStdString(), DEFAULT_SPLASHSCREEN));
-        strUsage += HelpMessageOpt("-resetguisettings", tr("Reset all settings changed in the GUI").toStdString());
         if (showDebug) {
             strUsage += HelpMessageOpt("-uiplatform", strprintf("Select platform to customize UI for (one of windows, macosx, other; default: %s)", BitcoinGUI::DEFAULT_UIPLATFORM));
             strUsage += HelpMessageOpt("-debug-ui", "Updates the UI's stylesheets in realtime with changes made to the css files in -custom-css-dir and forces some widgets to show up which are usually only visible under certain circumstances. (default: 0)");
@@ -149,7 +150,7 @@ HelpMessageDialog::HelpMessageDialog(QWidget *parent, HelpMode helpMode) :
 <h3>PrivateSend Basics</h3> \
 PrivateSend gives you true financial privacy by obscuring the origins of your funds. \
 All the Dash in your wallet is comprised of different \"inputs\" which you can think of as separate, discrete coins.<br> \
-PrivateSend uses an innovative process to mix your inputs with the inputs of two other people, without having your coins ever leave your wallet. \
+PrivateSend uses an innovative process to mix your inputs with the inputs of two or more other people, without having your coins ever leave your wallet. \
 You retain control of your money at all times.<hr> \
 <b>The PrivateSend process works like this:</b>\
 <ol type=\"1\"> \
@@ -158,7 +159,7 @@ These denominations are 0.001 DASH, 0.01 DASH, 0.1 DASH, 1 DASH and 10 DASH -- s
 <li>Your wallet then sends requests to specially configured software nodes on the network, called \"masternodes.\" \
 These masternodes are informed then that you are interested in mixing a certain denomination. \
 No identifiable information is sent to the masternodes, so they never know \"who\" you are.</li> \
-<li>When two other people send similar messages, indicating that they wish to mix the same denomination, a mixing session begins. \
+<li>When two or more other people send similar messages, indicating that they wish to mix the same denomination, a mixing session begins. \
 The masternode mixes up the inputs and instructs all three users' wallets to pay the now-transformed input back to themselves. \
 Your wallet pays that denomination directly to itself, but in a different address (called a change address).</li> \
 <li>In order to fully obscure your funds, your wallet must repeat this process a number of times with each denomination. \
@@ -218,6 +219,8 @@ ShutdownWindow::ShutdownWindow(QWidget *parent, Qt::WindowFlags f):
         tr("%1 is shutting down...").arg(tr(PACKAGE_NAME)) + "<br /><br />" +
         tr("Do not shut down the computer until this window disappears.")));
     setLayout(layout);
+
+    GUIUtil::updateFonts();
 }
 
 QWidget *ShutdownWindow::showShutdownWindow(BitcoinGUI *window)

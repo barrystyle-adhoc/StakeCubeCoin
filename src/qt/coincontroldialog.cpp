@@ -14,14 +14,12 @@
 #include <qt/walletmodel.h>
 
 #include <wallet/coincontrol.h>
-#include <init.h>
+#include <interfaces/node.h>
 #include <policy/fees.h>
 #include <policy/policy.h>
 #include <validation.h> // For mempool
 #include <wallet/fees.h>
 #include <wallet/wallet.h>
-
-#include <privatesend/privatesend-client.h>
 
 #include <QApplication>
 #include <QCheckBox>
@@ -135,15 +133,15 @@ CoinControlDialog::CoinControlDialog(QWidget* parent) :
     // Toggle lock state
     connect(ui->pushButtonToggleLock, SIGNAL(clicked()), this, SLOT(buttonToggleLockClicked()));
 
-    ui->treeWidget->setColumnWidth(COLUMN_CHECKBOX, 84);
+    ui->treeWidget->setColumnWidth(COLUMN_CHECKBOX, 94);
     ui->treeWidget->setColumnWidth(COLUMN_AMOUNT, 100);
     ui->treeWidget->setColumnWidth(COLUMN_LABEL, 170);
-    ui->treeWidget->setColumnWidth(COLUMN_ADDRESS, 190);
-    ui->treeWidget->setColumnWidth(COLUMN_PRIVATESEND_ROUNDS, 88);
-    ui->treeWidget->setColumnWidth(COLUMN_DATE, 80);
-    ui->treeWidget->setColumnWidth(COLUMN_CONFIRMATIONS, 100);
-    ui->treeWidget->setColumnHidden(COLUMN_TXHASH, true);         // store transaction hash in this column, but don't show it
-    ui->treeWidget->setColumnHidden(COLUMN_VOUT_INDEX, true);     // store vout index in this column, but don't show it
+    ui->treeWidget->setColumnWidth(COLUMN_PRIVATESEND_ROUNDS, 110);
+    ui->treeWidget->setColumnWidth(COLUMN_DATE, 120);
+    ui->treeWidget->setColumnWidth(COLUMN_CONFIRMATIONS, 110);
+
+    ui->treeWidget->header()->setStretchLastSection(false);
+    ui->treeWidget->header()->setSectionResizeMode(COLUMN_ADDRESS, QHeaderView::Stretch);
 
     // default view is sorted by amount desc
     sortView(COLUMN_AMOUNT, Qt::DescendingOrder);
@@ -216,16 +214,20 @@ void CoinControlDialog::buttonToggleLockClicked()
         ui->treeWidget->setEnabled(false);
         for (int i = 0; i < ui->treeWidget->topLevelItemCount(); i++){
             item = ui->treeWidget->topLevelItem(i);
-            COutPoint outpt(uint256S(item->text(COLUMN_TXHASH).toStdString()), item->text(COLUMN_VOUT_INDEX).toUInt());
-            if (model->isLockedCoin(uint256S(item->text(COLUMN_TXHASH).toStdString()), item->text(COLUMN_VOUT_INDEX).toUInt())){
-                model->unlockCoin(outpt);
+            COutPoint outpt(uint256S(item->data(COLUMN_ADDRESS, TxHashRole).toString().toStdString()), item->data(COLUMN_ADDRESS, VOutRole).toUInt());
+            // Don't toggle the lock state of partially mixed coins if they are not hidden in PrivateSend mode
+            if (coinControl()->IsUsingPrivateSend() && !fHideAdditional && !model->isFullyMixed(outpt)) {
+                continue;
+            }
+            if (model->wallet().isLockedCoin(outpt)) {
+                model->wallet().unlockCoin(outpt);
                 item->setDisabled(false);
                 item->setIcon(COLUMN_CHECKBOX, QIcon());
             }
             else{
-                model->lockCoin(outpt);
+                model->wallet().lockCoin(outpt);
                 item->setDisabled(true);
-                item->setIcon(COLUMN_CHECKBOX, QIcon(":/icons/lock_closed"));
+                item->setIcon(COLUMN_CHECKBOX, GUIUtil::getIcon("lock_closed", GUIUtil::ThemedColor::RED));
             }
             updateLabelLocked();
         }
@@ -249,10 +251,10 @@ void CoinControlDialog::showMenu(const QPoint &point)
         contextMenuItem = item;
 
         // disable some items (like Copy Transaction ID, lock, unlock) for tree roots in context menu
-        if (item->text(COLUMN_TXHASH).length() == 64) // transaction hash is 64 characters (this means it is a child node, so it is not a parent node in tree mode)
+        if (item->data(COLUMN_ADDRESS, TxHashRole).toString().length() == 64) // transaction hash is 64 characters (this means it is a child node, so it is not a parent node in tree mode)
         {
             copyTransactionHashAction->setEnabled(true);
-            if (model->isLockedCoin(uint256S(item->text(COLUMN_TXHASH).toStdString()), item->text(COLUMN_VOUT_INDEX).toUInt()))
+            if (model->wallet().isLockedCoin(COutPoint(uint256S(item->data(COLUMN_ADDRESS, TxHashRole).toString().toStdString()), item->data(COLUMN_ADDRESS, VOutRole).toUInt())))
             {
                 lockAction->setEnabled(false);
                 unlockAction->setEnabled(true);
@@ -302,7 +304,7 @@ void CoinControlDialog::copyAddress()
 // context menu action: copy transaction id
 void CoinControlDialog::copyTransactionHash()
 {
-    GUIUtil::setClipboard(contextMenuItem->text(COLUMN_TXHASH));
+    GUIUtil::setClipboard(contextMenuItem->data(COLUMN_ADDRESS, TxHashRole).toString());
 }
 
 // context menu action: lock coin
@@ -311,18 +313,18 @@ void CoinControlDialog::lockCoin()
     if (contextMenuItem->checkState(COLUMN_CHECKBOX) == Qt::Checked)
         contextMenuItem->setCheckState(COLUMN_CHECKBOX, Qt::Unchecked);
 
-    COutPoint outpt(uint256S(contextMenuItem->text(COLUMN_TXHASH).toStdString()), contextMenuItem->text(COLUMN_VOUT_INDEX).toUInt());
-    model->lockCoin(outpt);
+    COutPoint outpt(uint256S(contextMenuItem->data(COLUMN_ADDRESS, TxHashRole).toString().toStdString()), contextMenuItem->data(COLUMN_ADDRESS, VOutRole).toUInt());
+    model->wallet().lockCoin(outpt);
     contextMenuItem->setDisabled(true);
-    contextMenuItem->setIcon(COLUMN_CHECKBOX, QIcon(":/icons/lock_closed"));
+    contextMenuItem->setIcon(COLUMN_CHECKBOX, GUIUtil::getIcon("lock_closed", GUIUtil::ThemedColor::RED));
     updateLabelLocked();
 }
 
 // context menu action: unlock coin
 void CoinControlDialog::unlockCoin()
 {
-    COutPoint outpt(uint256S(contextMenuItem->text(COLUMN_TXHASH).toStdString()), contextMenuItem->text(COLUMN_VOUT_INDEX).toUInt());
-    model->unlockCoin(outpt);
+    COutPoint outpt(uint256S(contextMenuItem->data(COLUMN_ADDRESS, TxHashRole).toString().toStdString()), contextMenuItem->data(COLUMN_ADDRESS, VOutRole).toUInt());
+    model->wallet().unlockCoin(outpt);
     contextMenuItem->setDisabled(false);
     contextMenuItem->setIcon(COLUMN_CHECKBOX, QIcon());
     updateLabelLocked();
@@ -417,9 +419,9 @@ void CoinControlDialog::radioListMode(bool checked)
 // checkbox clicked by user
 void CoinControlDialog::viewItemChanged(QTreeWidgetItem* item, int column)
 {
-    if (column == COLUMN_CHECKBOX && item->text(COLUMN_TXHASH).length() == 64) // transaction hash is 64 characters (this means it is a child node, so it is not a parent node in tree mode)
+    if (column == COLUMN_CHECKBOX && item->data(COLUMN_ADDRESS, TxHashRole).toString().length() == 64) // transaction hash is 64 characters (this means it is a child node, so it is not a parent node in tree mode)
     {
-        COutPoint outpt(uint256S(item->text(COLUMN_TXHASH).toStdString()), item->text(COLUMN_VOUT_INDEX).toUInt());
+        COutPoint outpt(uint256S(item->data(COLUMN_ADDRESS, TxHashRole).toString().toStdString()), item->data(COLUMN_ADDRESS, VOutRole).toUInt());
 
         if (item->checkState(COLUMN_CHECKBOX) == Qt::Unchecked)
             coinControl()->UnSelect(outpt);
@@ -439,13 +441,20 @@ void CoinControlDialog::viewItemChanged(QTreeWidgetItem* item, int column)
 void CoinControlDialog::updateLabelLocked()
 {
     std::vector<COutPoint> vOutpts;
-    model->listLockedCoins(vOutpts);
+    model->wallet().listLockedCoins(vOutpts);
     if (vOutpts.size() > 0)
     {
        ui->labelLocked->setText(tr("(%1 locked)").arg(vOutpts.size()));
        ui->labelLocked->setVisible(true);
     }
     else ui->labelLocked->setVisible(false);
+}
+
+void CoinControlDialog::on_hideButton_clicked()
+{
+    fHideAdditional = !fHideAdditional;
+    updateView();
+    CoinControlDialog::updateLabels(model, this);
 }
 
 void CoinControlDialog::updateLabels(WalletModel *model, QDialog* dialog)
@@ -465,7 +474,7 @@ void CoinControlDialog::updateLabels(WalletModel *model, QDialog* dialog)
         {
             CTxOut txout(amount, static_cast<CScript>(std::vector<unsigned char>(24, 0)));
             txDummy.vout.push_back(txout);
-            fDust |= IsDust(txout, ::dustRelayFee);
+            fDust |= IsDust(txout, model->node().getDustRelayFee());
         }
     }
 
@@ -481,16 +490,16 @@ void CoinControlDialog::updateLabels(WalletModel *model, QDialog* dialog)
     bool fUnselectedNonMixed{false};
 
     std::vector<COutPoint> vCoinControl;
-    std::vector<COutput>   vOutputs;
     coinControl()->ListSelected(vCoinControl);
-    model->getOutputs(vCoinControl, vOutputs);
 
-    for (const COutput& out : vOutputs) {
+    size_t i = 0;
+    for (const auto& out : model->wallet().getCoins(vCoinControl)) {
+        if (out.depth_in_main_chain < 0) continue;
+
         // unselect already spent, very unlikely scenario, this could happen
         // when selected are spent elsewhere, like rpc or another computer
-        uint256 txhash = out.tx->GetHash();
-        COutPoint outpt(txhash, out.i);
-        if (model->isSpent(outpt))
+        const COutPoint& outpt = vCoinControl[i++];
+        if (out.is_spent)
         {
             coinControl()->UnSelect(outpt);
             fUnselectedSpent = true;
@@ -501,15 +510,15 @@ void CoinControlDialog::updateLabels(WalletModel *model, QDialog* dialog)
         nQuantity++;
 
         // Amount
-        nAmount += out.tx->tx->vout[out.i].nValue;
+        nAmount += out.txout.nValue;
 
         // Bytes
         CTxDestination address;
-        if(ExtractDestination(out.tx->tx->vout[out.i].scriptPubKey, address))
+        if(ExtractDestination(out.txout.scriptPubKey, address))
         {
             CPubKey pubkey;
             CKeyID *keyid = boost::get<CKeyID>(&address);
-            if (keyid && model->getPubKey(*keyid, pubkey))
+            if (keyid && model->wallet().getPubKey(*keyid, pubkey))
             {
                 nBytesInputs += (pubkey.IsCompressed() ? 148 : 180);
             }
@@ -531,7 +540,7 @@ void CoinControlDialog::updateLabels(WalletModel *model, QDialog* dialog)
                 nBytes -= 34;
 
         // Fee
-        nPayFee = GetMinimumFee(nBytes, *coinControl(), ::mempool, ::feeEstimator, nullptr /* FeeCalculation */);
+        nPayFee = model->node().getMinimumFee(nBytes, *coinControl(), nullptr /* returned_target */, nullptr /* reason */);
 
         if (nPayAmount > 0)
         {
@@ -552,7 +561,7 @@ void CoinControlDialog::updateLabels(WalletModel *model, QDialog* dialog)
             if (nChange > 0 && nChange < MIN_CHANGE)
             {
                 CTxOut txout(nChange, static_cast<CScript>(std::vector<unsigned char>(24, 0)));
-                if (IsDust(txout, ::dustRelayFee))
+                if (IsDust(txout, model->node().getDustRelayFee()))
                 {
                     nPayFee += nChange;
                     nChange = 0;
@@ -665,6 +674,37 @@ void CoinControlDialog::updateView()
     if (!model || !model->getOptionsModel() || !model->getAddressTableModel())
         return;
 
+    bool fNormalMode = mode == Mode::NORMAL;
+    ui->treeWidget->setColumnHidden(COLUMN_PRIVATESEND_ROUNDS, fNormalMode);
+    ui->treeWidget->setColumnHidden(COLUMN_LABEL, !fNormalMode);
+    ui->radioTreeMode->setVisible(fNormalMode);
+    ui->radioListMode->setVisible(fNormalMode);
+
+    if (!model->node().privateSendOptions().isEnabled()) {
+        fHideAdditional = false;
+        ui->hideButton->setVisible(false);
+    }
+
+    QString strHideButton;
+    switch (mode) {
+    case Mode::NORMAL:
+        if (fHideAdditional) {
+            strHideButton = tr("Show all coins");
+        } else {
+            strHideButton = tr("Hide PrivateSend coins");
+        }
+        break;
+    case Mode::PRIVATESEND:
+        if (fHideAdditional) {
+            strHideButton = tr("Show all PrivateSend coins");
+        } else {
+            strHideButton = tr("Show spendable coins only");
+        }
+        ui->radioListMode->setChecked(true);
+        break;
+    }
+    ui->hideButton->setText(strHideButton);
+
     bool treeMode = ui->radioTreeMode->isChecked();
     ui->treeWidget->clear();
     ui->treeWidget->setEnabled(false); // performance, otherwise updateLabels would be called for every checked checkbox
@@ -674,13 +714,10 @@ void CoinControlDialog::updateView()
 
     int nDisplayUnit = model->getOptionsModel()->getDisplayUnit();
 
-    std::map<QString, std::vector<COutput> > mapCoins;
-    model->listCoins(mapCoins);
-
-    for (const std::pair<const QString, std::vector<COutput>>& coins : mapCoins) {
+    for (const auto& coins : model->wallet().listCoins()) {
         CCoinControlWidgetItem *itemWalletAddress = new CCoinControlWidgetItem();
         itemWalletAddress->setCheckState(COLUMN_CHECKBOX, Qt::Unchecked);
-        QString sWalletAddress = coins.first;
+        QString sWalletAddress = QString::fromStdString(EncodeDestination(coins.first));
         QString sWalletLabel = model->getAddressTableModel()->labelForAddress(sWalletAddress);
         if (sWalletLabel.isEmpty())
             sWalletLabel = tr("(no label)");
@@ -704,91 +741,108 @@ void CoinControlDialog::updateView()
 
         CAmount nSum = 0;
         int nChildren = 0;
-        for (const COutput& out : coins.second) {
-            COutPoint outpoint = COutPoint(out.tx->tx->GetHash(), out.i);
-            int nRounds = model->getRealOutpointPrivateSendRounds(outpoint);
+        for (const auto& outpair : coins.second) {
+            const COutPoint& output = std::get<0>(outpair);
+            const interfaces::WalletTxOut& out = std::get<1>(outpair);
+            bool fFullyMixed{false};
+            CAmount nAmount = out.txout.nValue;
+            bool fPrivateSendAmount = model->node().privateSendOptions().isDenominated(nAmount) || model->node().privateSendOptions().isCollateralAmount(nAmount);
 
-            if ((coinControl()->IsUsingPrivateSend() && nRounds >= CPrivateSendClientOptions::GetRounds()) || !(coinControl()->IsUsingPrivateSend())) {
-                nSum += out.tx->tx->vout[out.i].nValue;
-                nChildren++;
-
-                CCoinControlWidgetItem* itemOutput;
-                if (treeMode) {
-                    itemOutput = new CCoinControlWidgetItem(itemWalletAddress);
-                } else {
-                    itemOutput = new CCoinControlWidgetItem(ui->treeWidget);
+            if (coinControl()->IsUsingPrivateSend()) {
+                fFullyMixed = model->isFullyMixed(output);
+                if ((fHideAdditional && !fFullyMixed) || (!fHideAdditional && !fPrivateSendAmount)) {
+                    coinControl()->UnSelect(output);
+                    continue;
                 }
-                itemOutput->setFlags(flgCheckbox);
-                itemOutput->setCheckState(COLUMN_CHECKBOX, Qt::Unchecked);
-
-                // address
-                CTxDestination outputAddress;
-                QString sAddress = "";
-                if (ExtractDestination(out.tx->tx->vout[out.i].scriptPubKey, outputAddress)) {
-                    sAddress = QString::fromStdString(EncodeDestination(outputAddress));
-
-                    // if listMode or change => show dash address. In tree mode, address is not shown again for direct wallet address outputs
-                    if (!treeMode || (!(sAddress == sWalletAddress))) {
-                        itemOutput->setText(COLUMN_ADDRESS, sAddress);
-                    }
-
-                    itemOutput->setToolTip(COLUMN_ADDRESS, sAddress);
+            } else {
+                if (fHideAdditional && fPrivateSendAmount) {
+                    coinControl()->UnSelect(output);
+                    continue;
                 }
+            }
 
-                // label
-                if (!(sAddress == sWalletAddress)) { //change
-                    // tooltip from where the change comes from
-                    itemOutput->setToolTip(COLUMN_LABEL, tr("change from %1 (%2)").arg(sWalletLabel).arg(sWalletAddress));
-                    itemOutput->setText(COLUMN_LABEL, tr("(change)"));
-                } else if (!treeMode) {
-                    QString sLabel = model->getAddressTableModel()->labelForAddress(sAddress);
-                    if (sLabel.isEmpty()) {
-                        sLabel = tr("(no label)");
-                    }
-                    itemOutput->setText(COLUMN_LABEL, sLabel);
-                }
+            nSum += out.txout.nValue;
+            nChildren++;
 
-                // amount
-                itemOutput->setText(COLUMN_AMOUNT, BitcoinUnits::format(nDisplayUnit, out.tx->tx->vout[out.i].nValue));
-                itemOutput->setToolTip(COLUMN_AMOUNT, BitcoinUnits::format(nDisplayUnit, out.tx->tx->vout[out.i].nValue));
-                itemOutput->setData(COLUMN_AMOUNT, Qt::UserRole, QVariant((qlonglong)out.tx->tx->vout[out.i].nValue)); // padding so that sorting works correctly
+            CCoinControlWidgetItem* itemOutput;
+            if (treeMode) {
+                itemOutput = new CCoinControlWidgetItem(itemWalletAddress);
+            } else {
+                itemOutput = new CCoinControlWidgetItem(ui->treeWidget);
+            }
+            itemOutput->setFlags(flgCheckbox);
+            itemOutput->setCheckState(COLUMN_CHECKBOX, Qt::Unchecked);
 
-                // date
-                itemOutput->setText(COLUMN_DATE, GUIUtil::dateTimeStr(out.tx->GetTxTime()));
-                itemOutput->setToolTip(COLUMN_DATE, GUIUtil::dateTimeStr(out.tx->GetTxTime()));
-                itemOutput->setData(COLUMN_DATE, Qt::UserRole, QVariant((qlonglong)out.tx->GetTxTime()));
+            // address
+            CTxDestination outputAddress;
+            QString sAddress = "";
+            if (ExtractDestination(out.txout.scriptPubKey, outputAddress)) {
+                sAddress = QString::fromStdString(EncodeDestination(outputAddress));
 
-                // PrivateSend rounds
-                if (nRounds >= 0 || LogAcceptCategory(BCLog::PRIVATESEND)) {
-                    itemOutput->setText(COLUMN_PRIVATESEND_ROUNDS, QString::number(nRounds));
-                } else {
-                    itemOutput->setText(COLUMN_PRIVATESEND_ROUNDS, tr("n/a"));
-                }
-                itemOutput->setData(COLUMN_PRIVATESEND_ROUNDS, Qt::UserRole, QVariant((qlonglong)nRounds));
-
-                // confirmations
-                itemOutput->setText(COLUMN_CONFIRMATIONS, QString::number(out.nDepth));
-                itemOutput->setData(COLUMN_CONFIRMATIONS, Qt::UserRole, QVariant((qlonglong)out.nDepth));
-
-                // transaction hash
-                uint256 txhash = out.tx->GetHash();
-                itemOutput->setText(COLUMN_TXHASH, QString::fromStdString(txhash.GetHex()));
-
-                // vout index
-                itemOutput->setText(COLUMN_VOUT_INDEX, QString::number(out.i));
-
-                // disable locked coins
-                if (model->isLockedCoin(txhash, out.i)) {
-                    COutPoint outpt(txhash, out.i);
-                    coinControl()->UnSelect(outpt); // just to be sure
-                    itemOutput->setDisabled(true);
-                    itemOutput->setIcon(COLUMN_CHECKBOX, QIcon(":/icons/lock_closed"));
+                // if listMode or change => show dash address. In tree mode, address is not shown again for direct wallet address outputs
+                if (!treeMode || (!(sAddress == sWalletAddress))) {
+                    itemOutput->setText(COLUMN_ADDRESS, sAddress);
                 }
 
-                // set checkbox
-                if (coinControl()->IsSelected(COutPoint(txhash, out.i))) {
-                    itemOutput->setCheckState(COLUMN_CHECKBOX, Qt::Checked);
+                itemOutput->setToolTip(COLUMN_ADDRESS, sAddress);
+            }
+
+            // label
+            if (!(sAddress == sWalletAddress)) { //change
+                // tooltip from where the change comes from
+                itemOutput->setToolTip(COLUMN_LABEL, tr("change from %1 (%2)").arg(sWalletLabel).arg(sWalletAddress));
+                itemOutput->setText(COLUMN_LABEL, tr("(change)"));
+            } else if (!treeMode) {
+                QString sLabel = model->getAddressTableModel()->labelForAddress(sAddress);
+                if (sLabel.isEmpty()) {
+                    sLabel = tr("(no label)");
                 }
+                itemOutput->setText(COLUMN_LABEL, sLabel);
+            }
+
+            // amount
+            itemOutput->setText(COLUMN_AMOUNT, BitcoinUnits::format(nDisplayUnit, out.txout.nValue));
+            itemOutput->setToolTip(COLUMN_AMOUNT, BitcoinUnits::format(nDisplayUnit, out.txout.nValue));
+            itemOutput->setData(COLUMN_AMOUNT, Qt::UserRole, QVariant((qlonglong)out.txout.nValue)); // padding so that sorting works correctly
+
+            // date
+            itemOutput->setText(COLUMN_DATE, GUIUtil::dateTimeStr(out.time));
+            itemOutput->setToolTip(COLUMN_DATE, GUIUtil::dateTimeStr(out.time));
+            itemOutput->setData(COLUMN_DATE, Qt::UserRole, QVariant((qlonglong)out.time));
+
+            // PrivateSend rounds
+            int nRounds = model->getRealOutpointPrivateSendRounds(output);
+            if (nRounds >= 0 || LogAcceptCategory(BCLog::PRIVATESEND)) {
+                itemOutput->setText(COLUMN_PRIVATESEND_ROUNDS, QString::number(nRounds));
+            } else {
+                itemOutput->setText(COLUMN_PRIVATESEND_ROUNDS, tr("n/a"));
+            }
+            itemOutput->setData(COLUMN_PRIVATESEND_ROUNDS, Qt::UserRole, QVariant((qlonglong)nRounds));
+
+            // confirmations
+            itemOutput->setText(COLUMN_CONFIRMATIONS, QString::number(out.depth_in_main_chain));
+            itemOutput->setData(COLUMN_CONFIRMATIONS, Qt::UserRole, QVariant((qlonglong)out.depth_in_main_chain));
+
+            // transaction hash
+            itemOutput->setData(COLUMN_ADDRESS, TxHashRole, QString::fromStdString(output.hash.GetHex()));
+
+            // vout index
+            itemOutput->setData(COLUMN_ADDRESS, VOutRole, output.n);
+
+            // disable locked coins
+            if (model->wallet().isLockedCoin(output)) {
+                coinControl()->UnSelect(output); // just to be sure
+                itemOutput->setDisabled(true);
+                itemOutput->setIcon(COLUMN_CHECKBOX, GUIUtil::getIcon("lock_closed", GUIUtil::ThemedColor::RED));
+            }
+
+            // set checkbox
+            if (coinControl()->IsSelected(output)) {
+                itemOutput->setCheckState(COLUMN_CHECKBOX, Qt::Checked);
+            }
+
+            if (coinControl()->IsUsingPrivateSend() && !fHideAdditional && !fFullyMixed) {
+                itemOutput->setDisabled(true);
             }
         }
 
@@ -802,12 +856,15 @@ void CoinControlDialog::updateView()
         }
     }
 
-    // expand all partially selected
+    // expand all partially selected and hide the empty
     if (treeMode)
     {
-        for (int i = 0; i < ui->treeWidget->topLevelItemCount(); i++)
-            if (ui->treeWidget->topLevelItem(i)->checkState(COLUMN_CHECKBOX) == Qt::PartiallyChecked)
-                ui->treeWidget->topLevelItem(i)->setExpanded(true);
+        for (int i = 0; i < ui->treeWidget->topLevelItemCount(); i++) {
+            QTreeWidgetItem* topLevelItem = ui->treeWidget->topLevelItem(i);
+            topLevelItem->setHidden(topLevelItem->childCount() == 0);
+            if (topLevelItem->checkState(COLUMN_CHECKBOX) == Qt::PartiallyChecked)
+                topLevelItem->setExpanded(true);
+        }
     }
 
     // sort view

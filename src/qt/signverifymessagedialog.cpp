@@ -12,8 +12,8 @@
 
 #include <base58.h>
 #include <init.h>
+#include <utilstrencodings.h>
 #include <validation.h> // For strMessageMagic
-#include <wallet/wallet.h>
 
 #include <string>
 #include <vector>
@@ -38,11 +38,10 @@ SignVerifyMessageDialog::SignVerifyMessageDialog(QWidget* parent) :
     ui->signatureIn_VM->setPlaceholderText(tr("Enter a signature for the message to be verified"));
 
     // These icons are needed on Mac also
-    ui->addressBookButton_SM->setIcon(QIcon(":/icons/address-book"));
-    ui->pasteButton_SM->setIcon(QIcon(":/icons/editpaste"));
-    ui->copySignatureButton_SM->setIcon(QIcon(":/icons/editcopy"));
-    ui->addressBookButton_VM->setIcon(QIcon(":/icons/address-book"));
-
+    GUIUtil::setIcon(ui->addressBookButton_SM, "address-book");
+    GUIUtil::setIcon(ui->pasteButton_SM, "editpaste");
+    GUIUtil::setIcon(ui->copySignatureButton_SM, "editcopy");
+    GUIUtil::setIcon(ui->addressBookButton_VM, "address-book");
 
     GUIUtil::setupAddressWidget(ui->addressIn_SM, this);
     GUIUtil::setupAddressWidget(ui->addressIn_VM, this);
@@ -54,9 +53,7 @@ SignVerifyMessageDialog::SignVerifyMessageDialog(QWidget* parent) :
     ui->messageIn_VM->installEventFilter(this);
     ui->signatureIn_VM->installEventFilter(this);
 
-    GUIUtil::setFixedPitchFont({ui->signatureOut_SM, ui->signatureIn_VM});
-
-    GUIUtil::setFont({ui->signatureOut_SM}, GUIUtil::FontWeight::Normal, 11, true);
+    GUIUtil::setFont({ui->signatureOut_SM, ui->signatureIn_VM}, GUIUtil::FontWeight::Normal, 11, true);
     GUIUtil::setFont({ui->signatureLabel_SM}, GUIUtil::FontWeight::Bold, 16);
     GUIUtil::setFont({ui->statusLabel_SM, ui->statusLabel_VM}, GUIUtil::FontWeight::Bold);
 
@@ -113,6 +110,7 @@ void SignVerifyMessageDialog::showPage(int index)
 
     GUIUtil::setFont({btnActive}, GUIUtil::FontWeight::Bold, 16);
     GUIUtil::setFont(vecNormal, GUIUtil::FontWeight::Normal, 16);
+    GUIUtil::updateFonts();
 
     ui->stackedWidgetSig->setCurrentIndex(index);
     btnActive->setChecked(true);
@@ -167,7 +165,7 @@ void SignVerifyMessageDialog::on_signMessageButton_SM_clicked()
     }
 
     CKey key;
-    if (!model->getPrivKey(*keyID, key))
+    if (!model->wallet().getPrivKey(*keyID, key))
     {
         ui->statusLabel_SM->setStyleSheet(GUIUtil::getThemedStyleQString(GUIUtil::ThemedStyle::TS_ERROR));
         ui->statusLabel_SM->setText(tr("Private key for the entered address is not available."));

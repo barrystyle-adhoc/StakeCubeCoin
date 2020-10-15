@@ -20,6 +20,10 @@ class ClientModel;
 class RPCTimerInterface;
 class WalletModel;
 
+namespace interfaces {
+    class Node;
+}
+
 namespace Ui {
     class RPCConsole;
 }
@@ -35,12 +39,12 @@ class RPCConsole: public QWidget
     Q_OBJECT
 
 public:
-    explicit RPCConsole(QWidget* parent);
+    explicit RPCConsole(interfaces::Node& node, QWidget* parent);
     ~RPCConsole();
 
-    static bool RPCParseCommandLine(std::string &strResult, const std::string &strCommand, bool fExecute, std::string * const pstrFilteredOut = nullptr, const std::string *walletID = nullptr);
-    static bool RPCExecuteCommandLine(std::string &strResult, const std::string &strCommand, std::string * const pstrFilteredOut = nullptr, const std::string *walletID = nullptr) {
-        return RPCParseCommandLine(strResult, strCommand, true, pstrFilteredOut, walletID);
+    static bool RPCParseCommandLine(interfaces::Node* node, std::string &strResult, const std::string &strCommand, bool fExecute, std::string * const pstrFilteredOut = nullptr, const std::string *walletID = nullptr);
+    static bool RPCExecuteCommandLine(interfaces::Node& node, std::string &strResult, const std::string &strCommand, std::string * const pstrFilteredOut = nullptr, const std::string *walletID = nullptr) {
+        return RPCParseCommandLine(&node, strResult, strCommand, true, pstrFilteredOut, walletID);
     }
 
     void setClientModel(ClientModel *model);
@@ -75,8 +79,6 @@ private Q_SLOTS:
     void on_openDebugLogfileButton_clicked();
     /** change the time range of the network traffic graph */
     void on_sldGraphRange_valueChanged(int value);
-    /** update traffic statistics */
-    void updateTrafficStats(quint64 totalBytesIn, quint64 totalBytesOut);
     void resizeEvent(QResizeEvent *event);
     void showEvent(QShowEvent *event);
     void hideEvent(QHideEvent *event);
@@ -112,8 +114,8 @@ public Q_SLOTS:
     void setNetworkActive(bool networkActive);
     /** Update number of masternodes shown in the UI */
     void updateMasternodeCount();
-    /** Set number of blocks and last block date shown in the UI */
-    void setNumBlocks(int count, const QDateTime& blockDate, double nVerificationProgress, bool headers);
+    /** Set number of blocks, last block date and last block hash shown in the UI */
+    void setNumBlocks(int count, const QDateTime& blockDate, const QString& blockHash, double nVerificationProgress, bool headers);
     /** Set size (number of transactions and memory usage) of the mempool in the UI */
     void setMempoolSize(long numberOfTxs, size_t dynUsage);
     /** Set number of InstantSend locks */
@@ -151,6 +153,8 @@ private:
     void buildParameterlist(QString arg);
     /** show detailed information on ui about selected node */
     void updateNodeDetail(const CNodeCombinedStats *stats);
+    /** Set required icons for buttons inside the dialog */
+    void setButtonIcons();
 
     enum ColumnWidths
     {
@@ -162,6 +166,7 @@ private:
 
     };
 
+    interfaces::Node& m_node;
     Ui::RPCConsole *ui;
     QButtonGroup pageButtons;
     ClientModel *clientModel;

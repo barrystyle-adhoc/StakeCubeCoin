@@ -168,6 +168,16 @@ bool WalletBatch::WriteAccountingEntry(const uint64_t nAccEntryNum, const CAccou
     return WriteIC(std::make_pair(std::string("acentry"), std::make_pair(acentry.strAccount, nAccEntryNum)), acentry);
 }
 
+bool WalletBatch::ReadPrivateSendSalt(uint256& salt)
+{
+    return m_batch.Read(std::string("ps_salt"), salt);
+}
+
+bool WalletBatch::WritePrivateSendSalt(const uint256& salt)
+{
+    return WriteIC(std::string("ps_salt"), salt);
+}
+
 CAmount WalletBatch::GetAccountCreditDebit(const std::string& strAccount)
 {
     std::list<CAccountingEntry> entries;
@@ -268,7 +278,7 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
         {
             uint256 hash;
             ssKey >> hash;
-            CWalletTx wtx;
+            CWalletTx wtx(nullptr /* pwallet */, MakeTransactionRef());
             ssValue >> wtx;
             CValidationState state;
             if (!(CheckTransaction(*wtx.tx, state) && (wtx.GetHash() == hash) && state.IsValid()))
@@ -641,7 +651,7 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
         pwallet->UpdateTimeFirstKey(1);
 
     for (uint256 hash : wss.vWalletUpgrade)
-        WriteTx(pwallet->mapWallet[hash]);
+        WriteTx(pwallet->mapWallet.at(hash));
 
     // Rewrite encrypted wallets of versions 0.4.0 and 0.5.0rc:
     if (wss.fIsEncrypted && (wss.nFileVersion == 40000 || wss.nFileVersion == 50000))
@@ -702,7 +712,7 @@ DBErrors WalletBatch::FindWalletTx(std::vector<uint256>& vTxHash, std::vector<CW
                 uint256 hash;
                 ssKey >> hash;
 
-                CWalletTx wtx;
+                CWalletTx wtx(nullptr /* pwallet */, MakeTransactionRef());
                 ssValue >> wtx;
 
                 vTxHash.push_back(hash);

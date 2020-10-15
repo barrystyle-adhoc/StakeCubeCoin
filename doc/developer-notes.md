@@ -407,6 +407,13 @@ class A
 
   - *Rationale*: Easier to understand what is happening, thus easier to spot mistakes, even for those
   that are not language lawyers
+ - Prefer signed ints and do not mix signed and unsigned integers. If an unsigned int is used, it should have a good
+   reason. The fact a value will never be negative is not a good reason. The most common reason will be that mod two
+   arithmetic is needed, such as in cryptographic primitives. If you need to make sure that some value is always
+   a non-negative one, use an assertion or exception instead.
+   - *Rationale*: When signed ints are mixed with unsigned ints, the signed int is converted to a unsigned
+   int. If the signed int is some negative `N`, it'll become `INT_MAX - N`  which might cause unexpected consequences.
+
 
 Strings and formatting
 ------------------------
@@ -578,6 +585,19 @@ GUI
   - *Rationale*: Model classes pass through events and data from the core, they
     should not interact with the user. That's where View classes come in. The converse also
     holds: try to not directly access core data structures from Views.
+
+- Avoid adding slow or blocking code in the GUI thread. In particular do not
+  add new `interfaces::Node` and `interfaces::Wallet` method calls, even if they
+  may be fast now, in case they are changed to lock or communicate across
+  processes in the future.
+
+  Prefer to offload work from the GUI thread to worker threads (see
+  `RPCExecutor` in console code as an example) or take other steps (see
+  https://doc.qt.io/archives/qq/qq27-responsive-guis.html) to keep the GUI
+  responsive.
+
+  - *Rationale*: Blocking the GUI thread can increase latency, and lead to
+    hangs and deadlocks.
 
 Subtrees
 ----------

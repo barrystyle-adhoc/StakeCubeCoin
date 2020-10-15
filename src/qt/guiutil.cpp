@@ -14,7 +14,7 @@
 #include <qt/walletmodel.h>
 
 #include <primitives/transaction.h>
-#include <init.h>
+#include <interfaces/node.h>
 #include <policy/policy.h>
 #include <protocol.h>
 #include <script/script.h>
@@ -42,6 +42,7 @@
 
 #include <boost/scoped_array.hpp>
 
+#include <QAbstractButton>
 #include <QAbstractItemView>
 #include <QApplication>
 #include <QClipboard>
@@ -131,12 +132,8 @@ static QFont::Weight fontWeightNormal = defaultFontWeightNormal;
 // Application font weight for bold text. May be overwritten by -font-weight-bold.
 static QFont::Weight fontWeightBold = defaultFontWeightBold;
 
-// Contains all widgets and its font attributes (weight, italic) with font changes due to GUIUtil::setFont
-static std::map<QWidget*, std::pair<FontWeight, bool>> mapNormalFontUpdates;
-// Contains all widgets where a fixed pitch font has been set with GUIUtil::setFixedPitchFont
-static std::set<QWidget*> setFixedPitchFontUpdates;
-// Contains all widgets where a non-default fontsize has been seet with GUIUtil::setFont
-static std::map<QWidget*, int> mapFontSizeUpdates;
+// Contains all widgets and its font attributes (weight, italic, size) with font changes due to GUIUtil::setFont
+static std::map<QWidget*, std::tuple<FontWeight, bool, int>> mapNormalFontUpdates;
 // Contains a list of supported font weights for all members of GUIUtil::FontFamily
 static std::map<FontFamily, std::vector<QFont::Weight>> mapSupportedWeights;
 
@@ -149,39 +146,41 @@ static const std::map<ThemedColor, QColor> themedColors = {
     { ThemedColor::DEFAULT, QColor(85, 85, 85) },
     { ThemedColor::UNCONFIRMED, QColor(128, 128, 128) },
     { ThemedColor::BLUE, QColor(0, 141, 228) },
+    { ThemedColor::ORANGE, QColor(199, 147, 4) },
     { ThemedColor::RED, QColor(168, 72, 50) },
-    { ThemedColor::GREEN, QColor(8, 110, 3) },
+    { ThemedColor::GREEN, QColor(94, 140, 65) },
     { ThemedColor::BAREADDRESS, QColor(140, 140, 140) },
     { ThemedColor::TX_STATUS_OPENUNTILDATE, QColor(64, 64, 255) },
-    { ThemedColor::TX_STATUS_OFFLINE, QColor(192, 192, 192) },
-    { ThemedColor::TX_STATUS_DANGER, QColor(168, 72, 50) },
-    { ThemedColor::TX_STATUS_LOCKED, QColor(28, 117, 188) },
     { ThemedColor::BACKGROUND_WIDGET, QColor(234, 234, 236) },
     { ThemedColor::BORDER_WIDGET, QColor(220, 220, 220) },
+    { ThemedColor::BACKGROUND_NETSTATS, QColor(210, 210, 210, 230) },
+    { ThemedColor::BORDER_NETSTATS, QColor(180, 180, 180) },
     { ThemedColor::QR_PIXEL, QColor(85, 85, 85) },
+    { ThemedColor::ICON_ALTERNATIVE_COLOR, QColor(167, 167, 167) },
 };
 
 static const std::map<ThemedColor, QColor> themedDarkColors = {
     { ThemedColor::DEFAULT, QColor(199, 199, 199) },
     { ThemedColor::UNCONFIRMED, QColor(170, 170, 170) },
     { ThemedColor::BLUE, QColor(0, 89, 154) },
+    { ThemedColor::ORANGE, QColor(199, 147, 4) },
     { ThemedColor::RED, QColor(168, 72, 50) },
-    { ThemedColor::GREEN, QColor(8, 110, 3) },
+    { ThemedColor::GREEN, QColor(94, 140, 65) },
     { ThemedColor::BAREADDRESS, QColor(140, 140, 140) },
     { ThemedColor::TX_STATUS_OPENUNTILDATE, QColor(64, 64, 255) },
-    { ThemedColor::TX_STATUS_OFFLINE, QColor(192, 192, 192) },
-    { ThemedColor::TX_STATUS_DANGER, QColor(168, 72, 50) },
-    { ThemedColor::TX_STATUS_LOCKED, QColor(28, 117, 188) },
     { ThemedColor::BACKGROUND_WIDGET, QColor(45, 45, 46) },
     { ThemedColor::BORDER_WIDGET, QColor(74, 74, 75) },
+    { ThemedColor::BACKGROUND_NETSTATS, QColor(45, 45, 46, 230) },
+    { ThemedColor::BORDER_NETSTATS, QColor(74, 74, 75) },
     { ThemedColor::QR_PIXEL, QColor(199, 199, 199) },
+    { ThemedColor::ICON_ALTERNATIVE_COLOR, QColor(74, 74, 75) },
 };
 
 static const std::map<ThemedStyle, QString> themedStyles = {
-    { ThemedStyle::TS_INVALID, "background:#e87b68;" },
+    { ThemedStyle::TS_INVALID, "background:#a84832;" },
     { ThemedStyle::TS_ERROR, "color:#a84832;" },
-    { ThemedStyle::TS_SUCCESS, "color:#096e03;" },
-    { ThemedStyle::TS_COMMAND, "color:#1c75bc;" },
+    { ThemedStyle::TS_SUCCESS, "color:#5e8c41;" },
+    { ThemedStyle::TS_COMMAND, "color:#008de4;" },
     { ThemedStyle::TS_PRIMARY, "color:#333;" },
     { ThemedStyle::TS_SECONDARY, "color:#444;" },
 };
@@ -189,8 +188,8 @@ static const std::map<ThemedStyle, QString> themedStyles = {
 static const std::map<ThemedStyle, QString> themedDarkStyles = {
     { ThemedStyle::TS_INVALID, "background:#a84832;" },
     { ThemedStyle::TS_ERROR, "color:#a84832;" },
-    { ThemedStyle::TS_SUCCESS, "color:#096e03;" },
-    { ThemedStyle::TS_COMMAND, "color:#1c75bc;" },
+    { ThemedStyle::TS_SUCCESS, "color:#5e8c41;" },
+    { ThemedStyle::TS_COMMAND, "color:#00599a;" },
     { ThemedStyle::TS_PRIMARY, "color:#c7c7c7;" },
     { ThemedStyle::TS_SECONDARY, "color:#aaa;" },
 };
@@ -207,6 +206,48 @@ QString getThemedStyleQString(ThemedStyle style)
     return theme.startsWith(darkThemePrefix) ? themedDarkStyles.at(style) : themedStyles.at(style);
 }
 
+QIcon getIcon(const QString& strIcon, const ThemedColor color, const ThemedColor colorAlternative, const QString& strIconPath)
+{
+    QColor qcolor = getThemedQColor(color);
+    QColor qcolorAlternative = getThemedQColor(colorAlternative);
+    QIcon icon(strIconPath + strIcon);
+    QIcon themedIcon;
+    for (const QSize& size : icon.availableSizes()) {
+        QImage image(icon.pixmap(size).toImage());
+        image = image.convertToFormat(QImage::Format_ARGB32);
+        for (int x = 0; x < image.width(); ++x) {
+            for (int y = 0; y < image.height(); ++y) {
+                const QRgb rgb = image.pixel(x, y);
+                QColor* pColor;
+                if ((rgb & RGB_MASK) < RGB_HALF) {
+                    pColor = &qcolor;
+                } else {
+                    pColor = &qcolorAlternative;
+                }
+                image.setPixel(x, y, qRgba(pColor->red(), pColor->green(), pColor->blue(), qAlpha(rgb)));
+            }
+        }
+        themedIcon.addPixmap(QPixmap::fromImage(image));
+    }
+    return themedIcon;
+}
+
+QIcon getIcon(const QString& strIcon, const ThemedColor color, const QString& strIconPath)
+{
+    return getIcon(strIcon, color, ThemedColor::ICON_ALTERNATIVE_COLOR, strIconPath);
+}
+
+void setIcon(QAbstractButton* button, const QString& strIcon, const ThemedColor color, const ThemedColor colorAlternative, const QSize& size)
+{
+    button->setIcon(getIcon(strIcon, color, colorAlternative));
+    button->setIconSize(size);
+}
+
+void setIcon(QAbstractButton* button, const QString& strIcon, const ThemedColor color, const QSize& size)
+{
+    setIcon(button, strIcon, color, ThemedColor::ICON_ALTERNATIVE_COLOR, size);
+}
+
 QString dateTimeStr(const QDateTime &date)
 {
     return date.date().toString(Qt::SystemLocaleShortDate) + QString(" ") + date.toString("hh:mm");
@@ -215,15 +256,6 @@ QString dateTimeStr(const QDateTime &date)
 QString dateTimeStr(qint64 nTime)
 {
     return dateTimeStr(QDateTime::fromTime_t((qint32)nTime));
-}
-
-QFont fixedPitchFont()
-{
-    if (dashThemeActive()) {
-        return getFontNormal();
-    } else {
-        return QFontDatabase::systemFont(QFontDatabase::FixedFont);
-    }
 }
 
 // Just some dummy data to generate a convincing random-looking (but consistent) address
@@ -248,7 +280,6 @@ void setupAddressWidget(QValidatedLineEdit *widget, QWidget *parent, bool fAllow
 {
     parent->setFocusProxy(widget);
 
-    setFixedPitchFont({widget});
     // We don't want translators to use own addresses in translations
     // and this is the only place, where this address is supplied.
     widget->setPlaceholderText(QObject::tr("Enter a Dash address (e.g. %1)").arg(
@@ -280,9 +311,9 @@ void setupAppearance(QWidget* parent, OptionsModel* model)
         QDialog dlg(parent);
         dlg.setObjectName("AppearanceSetup");
         dlg.setWindowTitle(QObject::tr("Appearance Setup"));
-        dlg.setWindowIcon(QIcon(":icons/bitcoin"));
+        dlg.setWindowIcon(QIcon(":icons/dash"));
         // And the widgets we add to it
-        QLabel lblHeading(QObject::tr("Please choose your prefered settings for the appearance of %1").arg(QObject::tr(PACKAGE_NAME)), &dlg);
+        QLabel lblHeading(QObject::tr("Please choose your preferred settings for the appearance of %1").arg(QObject::tr(PACKAGE_NAME)), &dlg);
         lblHeading.setObjectName("lblHeading");
         lblHeading.setWordWrap(true);
         QLabel lblSubHeading(QObject::tr("This can also be adjusted later in the \"Appearance\" tab of the preferences."), &dlg);
@@ -426,12 +457,12 @@ QString formatBitcoinURI(const SendCoinsRecipient &info)
     return ret;
 }
 
-bool isDust(const QString& address, const CAmount& amount)
+bool isDust(interfaces::Node& node, const QString& address, const CAmount& amount)
 {
     CTxDestination dest = DecodeDestination(address.toStdString());
     CScript script = GetScriptForDestination(dest);
     CTxOut txOut(amount, script);
-    return IsDust(txOut, ::dustRelayFee);
+    return IsDust(txOut, node.getDustRelayFee());
 }
 
 QString HtmlEscape(const QString& str, bool fMultiLine)
@@ -1092,6 +1123,11 @@ const QString getDefaultTheme()
     return defaultTheme;
 }
 
+const bool isValidTheme(const QString& strTheme)
+{
+    return strTheme == defaultTheme || strTheme == darkThemePrefix || strTheme == traditionalTheme;
+}
+
 void loadStyleSheet(QWidget* widget, bool fForceUpdate)
 {
     AssertLockNotHeld(cs_css);
@@ -1236,6 +1272,7 @@ QString fontFamilyToString(FontFamily family)
 void setFontFamily(FontFamily family)
 {
     fontFamily = family;
+    setApplicationFont();
     updateFonts();
 }
 
@@ -1342,7 +1379,7 @@ void setFontScale(int nScale)
 
 double getScaledFontSize(int nSize)
 {
-    return (nSize * (1 + (fontScale * fontScaleSteps)));
+    return std::round(nSize * (1 + (fontScale * fontScaleSteps)) * 4) / 4.0;
 }
 
 bool loadFonts()
@@ -1490,90 +1527,115 @@ void setApplicationFont()
 
 void setFont(const std::vector<QWidget*>& vecWidgets, FontWeight weight, int nPointSize, bool fItalic)
 {
-    QFont font = getFont(weight, fItalic, nPointSize);
-
     for (auto it : vecWidgets) {
-        auto fontAttributes = std::make_pair(weight, fItalic);
-        auto itw = mapNormalFontUpdates.emplace(std::make_pair(it, fontAttributes));
-        if (!itw.second) itw.first->second = fontAttributes;
-
-        if (nPointSize != -1) {
-            auto its = mapFontSizeUpdates.emplace(std::make_pair(it, nPointSize));
-            if (!its.second) its.first->second = nPointSize;
+        auto fontAttributes = std::make_tuple(weight, fItalic, nPointSize);
+        auto itFontUpdate = mapNormalFontUpdates.emplace(std::make_pair(it, fontAttributes));
+        if (!itFontUpdate.second) {
+            itFontUpdate.first->second = fontAttributes;
         }
-
-        it->setFont(font);
-    }
-}
-
-void setFixedPitchFont(const std::vector<QWidget*>& vecWidgets)
-{
-    for (auto it : vecWidgets) {
-        setFixedPitchFontUpdates.emplace(it);
-        it->setFont(fixedPitchFont());
     }
 }
 
 void updateFonts()
 {
-    setApplicationFont();
+    // Fonts need to be loaded by GUIIUtil::loadFonts(), if not just return.
+    if (!osDefaultFont) {
+        return;
+    }
 
-    auto getKey = [](QWidget* w) -> QString {
-        return w->parent() ? w->parent()->objectName() + w->objectName() : w->objectName();
-    };
-
-    static std::map<QString, int> mapDefaultFontSizes;
-    std::map<QWidget*, QFont> mapWidgetFonts;
+    static std::map<QWidget*, int> mapWidgetDefaultFontSizes;
+    static std::map<QString, int> mapClassDefaultFontSizes;
+    std::map<QWidget*, std::pair<QFont, bool>> mapWidgetFonts;
 
     for (QWidget* w : qApp->allWidgets()) {
+        std::vector<QString> vecIgnore{
+            "QWidget", "QDialog", "QFrame", "QStackedWidget", "QDesktopWidget", "QDesktopScreenWidget",
+            "QTipLabel", "QMessageBox", "QMenu", "QComboBoxPrivateScroller", "QComboBoxPrivateContainer",
+            "QScrollBar", "QListView", "BitcoinGUI", "WalletView", "WalletFrame"
+        };
+        if (std::find(vecIgnore.begin(), vecIgnore.end(), w->metaObject()->className()) != vecIgnore.end()) {
+            continue;
+        }
         QFont font = w->font();
         font.setFamily(qApp->font().family());
         font.setWeight(getFontWeightNormal());
         font.setStyleName(qApp->font().styleName());
         font.setStyle(qApp->font().style());
         // Set the font size based on the widgets default font size + the font scale
-        QString key = getKey(w);
-        if (!mapDefaultFontSizes.count(key)) {
-            mapDefaultFontSizes.emplace(std::make_pair(key, font.pointSize() > 0 ? font.pointSize() : defaultFontSize));
+        bool fAdded = false;
+        if (!mapWidgetDefaultFontSizes.count(w)) {
+            mapWidgetDefaultFontSizes.emplace(std::make_pair(w, font.pointSize() > 0 ? font.pointSize() : defaultFontSize));
+            fAdded = true;
         }
-        font.setPointSizeF(getScaledFontSize(mapDefaultFontSizes[key]));
-        mapWidgetFonts.emplace(w, font);
+        font.setPointSizeF(getScaledFontSize(mapWidgetDefaultFontSizes[w]));
+        bool fUpdateRequired = fAdded || (mapNormalFontUpdates.find(w) == mapNormalFontUpdates.end() && font != w->font());
+        mapWidgetFonts.emplace(w, std::make_pair(font, fUpdateRequired));
     }
 
     auto itn = mapNormalFontUpdates.begin();
     while (itn != mapNormalFontUpdates.end()) {
-        if (mapWidgetFonts.count(itn->first)) {
-            mapWidgetFonts[itn->first] = getFont(itn->second.first, itn->second.second, mapDefaultFontSizes[getKey(itn->first)]);
+        auto itw = mapWidgetFonts.find(itn->first);
+        if (itw != mapWidgetFonts.end()) {
+            int nSize = std::get<2>(itn->second);
+            if (nSize == -1) {
+                nSize = mapWidgetDefaultFontSizes[itn->first];
+            }
+            QFont&& font = getFont(std::get<0>(itn->second), std::get<1>(itn->second), nSize);
+            if (itn->first->font() != font) {
+                itw->second.first = font;
+                itw->second.second = true;
+            }
             ++itn;
         } else {
             itn = mapNormalFontUpdates.erase(itn);
         }
     }
-    auto its = mapFontSizeUpdates.begin();
-    while (its != mapFontSizeUpdates.end()) {
-        if (mapWidgetFonts.count(its->first)) {
-            QFont font = mapWidgetFonts[its->first];
-            font.setPointSizeF(getScaledFontSize(its->second));
-            mapWidgetFonts[its->first] = font;
-            ++its;
-        } else {
-            its = mapFontSizeUpdates.erase(its);
-        }
-    }
-    auto itf = setFixedPitchFontUpdates.begin();
-    while (itf != setFixedPitchFontUpdates.end()) {
-        if (mapWidgetFonts.count(*itf)) {
-            QFont font = fixedPitchFont();
-            font.setPointSizeF(getScaledFontSize(mapDefaultFontSizes[getKey(*itf)]));
-            mapWidgetFonts[*itf] = font;
-            ++itf;
-        } else {
-            itf = setFixedPitchFontUpdates.erase(itf);
+
+    for (auto it : mapWidgetFonts) {
+        if (it.second.second) {
+            it.first->setFont(it.second.first);
         }
     }
 
-    for (auto it : mapWidgetFonts) {
-        it.first->setFont(it.second);
+    // Cleanup mapDefaultFontSize to remove deleted widgets
+    auto itd = mapWidgetDefaultFontSizes.begin();
+    while (itd != mapWidgetDefaultFontSizes.end()) {
+        if (qApp->allWidgets().contains(itd->first)) {
+            ++itd;
+        } else {
+            itd = mapWidgetDefaultFontSizes.erase(itd);
+        }
+    }
+
+    // Scale the global font for QToolTip labels, QMenu and QMessageBox instances
+    QFont fontToolTip = qApp->font("QTipLabel");
+    QFont fontMenu = qApp->font("QMenu");
+    QFont fontMessageBox = qApp->font("QMessageBox");
+    // Store their default font sizes before ever applying any scale to it
+    if (!mapClassDefaultFontSizes.count("QTipLabel")) {
+        mapClassDefaultFontSizes.emplace("QTipLabel", fontToolTip.pointSize());
+    }
+    if (!mapClassDefaultFontSizes.count("QMenu")) {
+        mapClassDefaultFontSizes.emplace("QMenu", fontMenu.pointSize());
+    }
+    if (!mapClassDefaultFontSizes.count("QMessageBox")) {
+        mapClassDefaultFontSizes.emplace("QMessageBox", fontMessageBox.pointSize());
+    }
+    // And give them the proper scaled size based on their default sizes if required
+    double dSize = getScaledFontSize(mapClassDefaultFontSizes["QTipLabel"]);
+    if (fontToolTip.pointSizeF() != dSize) {
+        fontToolTip.setPointSizeF(dSize);
+        qApp->setFont(fontToolTip, "QTipLabel");
+    }
+    dSize = getScaledFontSize(mapClassDefaultFontSizes["QMenu"]);
+    if (fontMenu.pointSizeF() != dSize) {
+        fontMenu.setPointSizeF(dSize);
+        qApp->setFont(fontMenu, "QMenu");
+    }
+    dSize = getScaledFontSize(getScaledFontSize(mapClassDefaultFontSizes["QMessageBox"]));
+    if (fontMessageBox.pointSizeF() != dSize) {
+        fontMessageBox.setPointSizeF(dSize);
+        qApp->setFont(fontMessageBox, "QMessageBox");
     }
 }
 

@@ -19,6 +19,8 @@
 #include <QPushButton>
 #include <QSystemTrayIcon>
 
+#include <memory>
+
 #ifdef Q_OS_MAC
 #include <qt/macos_appnap.h>
 #endif
@@ -34,6 +36,11 @@ class WalletFrame;
 class WalletModel;
 class HelpMessageDialog;
 class ModalOverlay;
+
+namespace interfaces {
+class Handler;
+class Node;
+}
 
 QT_BEGIN_NAMESPACE
 class QAction;
@@ -54,7 +61,7 @@ class BitcoinGUI : public QMainWindow
 public:
     static const std::string DEFAULT_UIPLATFORM;
 
-    explicit BitcoinGUI(const NetworkStyle* networkStyle, QWidget* parent = 0);
+    explicit BitcoinGUI(interfaces::Node& node, const NetworkStyle* networkStyle, QWidget* parent = 0);
     ~BitcoinGUI();
 
     /** Set the client model.
@@ -81,6 +88,9 @@ protected:
     bool eventFilter(QObject *object, QEvent *event);
 
 private:
+    interfaces::Node& m_node;
+    std::unique_ptr<interfaces::Handler> m_handler_message_box;
+    std::unique_ptr<interfaces::Handler> m_handler_question;
     ClientModel *clientModel;
     WalletFrame *walletFrame;
 
@@ -146,9 +156,19 @@ private:
     CAppNapInhibitor* m_app_nap_inhibitor = nullptr;
 #endif
 
-    /** Keep track of previous number of blocks, to detect progress */
-    int prevBlocks;
-    int spinnerFrame;
+    /** Timer to update the spinner animation in the status bar periodically */
+    QTimer* timerSpinner;
+    /** Start the spinner animation in the status bar if it's not running and if labelBlocksIcon is visible. */
+    void startSpinner();
+    /** Stop the spinner animation in the status bar */
+    void stopSpinner();
+
+    /** Timer to update the connection icon during connecting phase */
+    QTimer* timerConnecting;
+    /** Start the connecting animation */
+    void startConnectingAnimation();
+    /** Stop the connecting animation */
+    void stopConnectingAnimation();
 
     struct IncomingTransactionMessage {
         QString date;
@@ -186,6 +206,10 @@ private:
 
     void updateHeadersSyncProgressLabel();
 
+    void updateProgressBarVisibility();
+
+    void updateToolBarShortcuts();
+
 Q_SIGNALS:
     /** Signal raised when a URI was entered or dragged to the GUI */
     void receivedURI(const QString &uri);
@@ -200,7 +224,7 @@ public Q_SLOTS:
     /** Get restart command-line parameters and request restart */
     void handleRestart(QStringList args);
     /** Set number of blocks and last block date shown in the UI */
-    void setNumBlocks(int count, const QDateTime& blockDate, double nVerificationProgress, bool headers);
+    void setNumBlocks(int count, const QDateTime& blockDate, const QString& blockHash, double nVerificationProgress, bool headers);
     /** Set additional data sync status shown in the UI */
     void setAdditionalDataSyncProgress(double nSyncProgress);
 
@@ -315,6 +339,10 @@ private Q_SLOTS:
     void toggleNetworkActive();
 
     void showModalOverlay();
+
+    void updatePrivateSendVisibility();
+
+    void updateWidth();
 };
 
 class UnitDisplayStatusBarControl : public QLabel

@@ -1,16 +1,12 @@
 #include <qt/masternodelist.h>
 #include <qt/forms/ui_masternodelist.h>
 
-#include <masternode/activemasternode.h>
 #include <qt/clientmodel.h>
 #include <clientversion.h>
 #include <coins.h>
 #include <qt/guiutil.h>
 #include <init.h>
-#include <masternode/masternode-sync.h>
 #include <netbase.h>
-#include <validation.h>
-#include <wallet/wallet.h>
 #include <qt/walletmodel.h>
 
 #include <univalue.h>
@@ -92,6 +88,8 @@ MasternodeList::MasternodeList(QWidget* parent) :
     timer = new QTimer(this);
     connect(timer, SIGNAL(timeout()), this, SLOT(updateDIP3ListScheduled()));
     timer->start(1000);
+
+    GUIUtil::updateFonts();
 }
 
 MasternodeList::~MasternodeList()
@@ -138,14 +136,14 @@ void MasternodeList::updateDIP3ListScheduled()
     // after filter was last changed unless we want to force the update.
     if (fFilterUpdatedDIP3) {
         int64_t nSecondsToWait = nTimeFilterUpdatedDIP3 - GetTime() + MASTERNODELIST_FILTER_COOLDOWN_SECONDS;
-        ui->countLabelDIP3->setText(tr("Please wait... %1").arg(nSecondsToWait));
+        ui->countLabelDIP3->setText(tr("Please wait...") + " " + QString::number(nSecondsToWait));
 
         if (nSecondsToWait <= 0) {
             updateDIP3List();
             fFilterUpdatedDIP3 = false;
         }
     } else if (mnListChanged) {
-        int64_t nMnListUpdateSecods = masternodeSync.IsBlockchainSynced() ? MASTERNODELIST_UPDATE_SECONDS : MASTERNODELIST_UPDATE_SECONDS*10;
+        int64_t nMnListUpdateSecods = clientModel->masternodeSync().isBlockchainSynced() ? MASTERNODELIST_UPDATE_SECONDS : MASTERNODELIST_UPDATE_SECONDS * 10;
         int64_t nSecondsToWait = nTimeUpdatedDIP3 - GetTime() + nMnListUpdateSecods;
 
         if (nSecondsToWait <= 0) {
@@ -167,11 +165,10 @@ void MasternodeList::updateDIP3List()
     {
         // Get all UTXOs for each MN collateral in one go so that we can reduce locking overhead for cs_main
         // We also do this outside of the below Qt list update loop to reduce cs_main locking time to a minimum
-        LOCK(cs_main);
         mnList.ForEachMN(false, [&](const CDeterministicMNCPtr& dmn) {
             CTxDestination collateralDest;
             Coin coin;
-            if (GetUTXOCoin(dmn->collateralOutpoint, coin) && ExtractDestination(coin.out.scriptPubKey, collateralDest)) {
+            if (clientModel->node().getUnspentOutput(dmn->collateralOutpoint, coin) && ExtractDestination(coin.out.scriptPubKey, collateralDest)) {
                 mapCollateralDests.emplace(dmn->proTxHash, collateralDest);
             }
         });
@@ -197,7 +194,7 @@ void MasternodeList::updateDIP3List()
     std::set<COutPoint> setOutpts;
     if (walletModel && ui->checkBoxMyMasternodesOnly->isChecked()) {
         std::vector<COutPoint> vOutpts;
-        walletModel->listProTxCoins(vOutpts);
+        walletModel->wallet().listProTxCoins(vOutpts);
         for (const auto& outpt : vOutpts) {
             setOutpts.emplace(outpt);
         }
@@ -206,10 +203,10 @@ void MasternodeList::updateDIP3List()
     mnList.ForEachMN(false, [&](const CDeterministicMNCPtr& dmn) {
         if (walletModel && ui->checkBoxMyMasternodesOnly->isChecked()) {
             bool fMyMasternode = setOutpts.count(dmn->collateralOutpoint) ||
-                walletModel->IsSpendable(dmn->pdmnState->keyIDOwner) ||
-                walletModel->IsSpendable(dmn->pdmnState->keyIDVoting) ||
-                walletModel->IsSpendable(dmn->pdmnState->scriptPayout) ||
-                walletModel->IsSpendable(dmn->pdmnState->scriptOperatorPayout);
+                walletModel->wallet().isSpendable(dmn->pdmnState->keyIDOwner) ||
+                walletModel->wallet().isSpendable(dmn->pdmnState->keyIDVoting) ||
+                walletModel->wallet().isSpendable(dmn->pdmnState->scriptPayout) ||
+                walletModel->wallet().isSpendable(dmn->pdmnState->scriptOperatorPayout);
             if (!fMyMasternode) return;
         }
         // populate list
@@ -300,7 +297,7 @@ void MasternodeList::on_filterLineEditDIP3_textChanged(const QString& strFilterI
     strCurrentFilterDIP3 = strFilterIn;
     nTimeFilterUpdatedDIP3 = GetTime();
     fFilterUpdatedDIP3 = true;
-    ui->countLabelDIP3->setText(tr("Please wait... %1").arg(MASTERNODELIST_FILTER_COOLDOWN_SECONDS));
+    ui->countLabelDIP3->setText(tr("Please wait...") + " " + QString::number(MASTERNODELIST_FILTER_COOLDOWN_SECONDS));
 }
 
 void MasternodeList::on_checkBoxMyMasternodesOnly_stateChanged(int state)

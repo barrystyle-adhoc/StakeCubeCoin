@@ -37,6 +37,7 @@
 #include <utility>
 #include <vector>
 
+typedef CWallet* CWalletRef;
 bool AddWallet(CWallet* wallet);
 bool RemoveWallet(CWallet* wallet);
 bool HasWallets();
@@ -205,6 +206,9 @@ private:
   /** Constant used in hashBlock to indicate tx has been abandoned */
     static const uint256 ABANDON_HASH;
 
+    mutable bool fIsChainlocked{false};
+    mutable bool fIsInstantSendLocked{false};
+
 public:
     CTransactionRef tx;
     uint256 hashBlock;
@@ -358,11 +362,6 @@ public:
     mutable CAmount nAvailableWatchCreditCached;
     mutable CAmount nChangeCached;
 
-    CWalletTx()
-    {
-        Init(nullptr);
-    }
-
     CWalletTx(const CWallet* pwalletIn, CTransactionRef arg) : CMerkleTx(std::move(arg))
     {
         Init(pwalletIn);
@@ -480,7 +479,7 @@ public:
     CAmount GetAvailableWatchOnlyCredit(const bool fUseCache=true) const;
     CAmount GetChange() const;
 
-    CAmount GetAnonymizedCredit(bool fUseCache=true) const;
+    CAmount GetAnonymizedCredit(const CCoinControl* coinControl = nullptr) const;
     CAmount GetDenominatedCredit(bool unconfirmed, bool fUseCache=true) const;
 
     void GetAmounts(std::list<COutputEntry>& listReceived,
@@ -498,7 +497,6 @@ public:
     bool IsTrusted() const;
 
     int64_t GetTxTime() const;
-    int GetRequestCount() const;
 
     // RelayWalletTransaction may only be called if fBroadcastTransactions!
     bool RelayWalletTransaction(CConnman* connman);
@@ -544,6 +542,16 @@ public:
 
     bool operator==(const CInputCoin& rhs) const {
         return outpoint == rhs.outpoint;
+    }
+};
+
+struct CompareInputCoinBIP69
+{
+    inline bool operator()(const CInputCoin& a, const CInputCoin& b) const
+    {
+        // Note: CInputCoin-s are essentially inputs, their txouts are used for informational purposes only
+        // that's why we use CompareInputBIP69 to sort them in a BIP69 compliant way.
+        return CompareInputBIP69()(CTxIn(a.outpoint), CTxIn(b.outpoint));
     }
 };
 
@@ -802,6 +810,17 @@ private:
      */
     const CBlockIndex* m_last_block_processed = nullptr;
 
+    /** Pulled from wallet DB ("ps_salt") and used when mixing a random number of rounds.
+     *  This salt is needed to prevent an attacker from learning how many extra times
+     *  the input was mixed based only on information in the blockchain.
+     */
+    uint256 nPrivateSendSalt;
+
+    /**
+     * Fetches PrivateSend salt from database or generates and saves a new one if no salt was found in the db
+     */
+    void InitPrivateSendSalt();
+
 public:
     /*
      * Main wallet lock.
@@ -853,7 +872,6 @@ public:
 
     int64_t nOrderPosNext = 0;
     uint64_t nAccountingEntryNumber = 0;
-    std::map<uint256, int> mapRequestCount;
 
     std::map<CTxDestination, CAddressBookData> mapAddressBook;
 
@@ -912,6 +930,7 @@ public:
     int GetCappedOutpointPrivateSendRounds(const COutPoint& outpoint) const;
 
     bool IsDenominated(const COutPoint& outpoint) const;
+    bool IsFullyMixed(const COutPoint& outpoint) const;
 
     bool IsSpent(const uint256& hash, unsigned int n) const;
 
@@ -1023,12 +1042,12 @@ public:
     CAmount GetLegacyBalance(const isminefilter& filter, int minDepth, const std::string* account, const bool fAddLocked) const;
 
     CAmount GetAnonymizableBalance(bool fSkipDenominated = false, bool fSkipUnconfirmed = true) const;
-    CAmount GetAnonymizedBalance() const;
+    CAmount GetAnonymizedBalance(const CCoinControl* coinControl = nullptr) const;
     float GetAverageAnonymizedRounds() const;
     CAmount GetNormalizedAnonymizedBalance() const;
     CAmount GetDenominatedBalance(bool unconfirmed=false) const;
 
-    bool GetBudgetSystemCollateralTX(CWalletTx& tx, uint256 hash, CAmount amount, const COutPoint& outpoint=COutPoint()/*defaults null*/);
+    bool GetBudgetSystemCollateralTX(CTransactionRef& tx, uint256 hash, CAmount amount, const COutPoint& outpoint=COutPoint()/*defaults null*/);
     CAmount GetAvailableBalance(const CCoinControl* coinControl = nullptr) const;
 
     /**
@@ -1043,9 +1062,9 @@ public:
      * selected by SelectCoins(); Also create the change output, when needed
      * @note passing nChangePosInOut as -1 will result in setting a random position
      */
-    bool CreateTransaction(const std::vector<CRecipient>& vecSend, CWalletTx& wtxNew, CReserveKey& reservekey, CAmount& nFeeRet, int& nChangePosInOut,
+    bool CreateTransaction(const std::vector<CRecipient>& vecSend, CTransactionRef& tx, CReserveKey& reservekey, CAmount& nFeeRet, int& nChangePosInOut,
                            std::string& strFailReason, const CCoinControl& coin_control, bool sign = true, int nExtraPayloadSize = 0);
-    bool CommitTransaction(CWalletTx& wtxNew, CReserveKey& reservekey, CConnman* connman, CValidationState& state);
+    bool CommitTransaction(CTransactionRef tx, mapValue_t mapValue, std::vector<std::pair<std::string, std::string>> orderForm, std::string fromAccount, CReserveKey& reservekey, CConnman* connman, CValidationState& state);
 
     bool CreateCollateralTransaction(CMutableTransaction& txCollateral, std::string& strReason);
 
@@ -1107,16 +1126,6 @@ public:
     bool DelAddressBook(const CTxDestination& address);
 
     const std::string& GetAccountName(const CScript& scriptPubKey) const;
-
-    void Inventory(const uint256 &hash) override
-    {
-        {
-            LOCK(cs_wallet);
-            std::map<uint256, int>::iterator mi = mapRequestCount.find(hash);
-            if (mi != mapRequestCount.end())
-                (*mi).second++;
-        }
-    }
 
     void GetScriptForMining(std::shared_ptr<CReserveScript> &script);
 

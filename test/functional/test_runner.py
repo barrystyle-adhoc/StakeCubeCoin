@@ -59,6 +59,7 @@ BASE_SCRIPTS= [
     # Scripts that are run by the travis build process.
     # Longest test should go first, to favor running tests in parallel
     'feature_dip3_deterministicmns.py', # NOTE: needs dash_hash to pass
+    'feature_block_reward_reallocation.py',
     'wallet_hd.py',
     'wallet_backup.py',
     # vv Tests less than 5m vv

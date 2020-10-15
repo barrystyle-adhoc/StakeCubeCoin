@@ -29,7 +29,7 @@ public:
     ~SendCoinsEntry();
 
     void setModel(WalletModel *model);
-    bool validate();
+    bool validate(interfaces::Node& node);
     SendCoinsRecipient getValue();
 
     /** Return whether the entry is still empty and unedited */
@@ -64,11 +64,16 @@ private Q_SLOTS:
     void on_pasteButton_clicked();
     void updateDisplayUnit();
 
+protected:
+    void changeEvent(QEvent* e);
+
 private:
     SendCoinsRecipient recipient;
     Ui::SendCoinsEntry *ui;
     WalletModel *model;
 
+    /** Set required icons for buttons inside the dialog */
+    void setButtonIcons();
     bool updateLabel(const QString &address);
 };
 

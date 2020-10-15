@@ -97,7 +97,6 @@ UniValue mnsync(const JSONRPCRequest& request)
         objStatus.pushKV("Attempt", masternodeSync.GetAttempt());
         objStatus.pushKV("IsBlockchainSynced", masternodeSync.IsBlockchainSynced());
         objStatus.pushKV("IsSynced", masternodeSync.IsSynced());
-        objStatus.pushKV("IsFailed", masternodeSync.IsFailed());
         return objStatus;
     }
 
@@ -109,8 +108,7 @@ UniValue mnsync(const JSONRPCRequest& request)
 
     if(strMode == "reset")
     {
-        masternodeSync.Reset();
-        masternodeSync.SwitchToNextAsset(*g_connman);
+        masternodeSync.Reset(true);
         return "success";
     }
     return "failure";

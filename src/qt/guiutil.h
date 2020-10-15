@@ -7,6 +7,7 @@
 
 #include <amount.h>
 #include <fs.h>
+#include <qt/guiconstants.h>
 
 #include <QEvent>
 #include <QHeaderView>
@@ -22,7 +23,13 @@ class QValidatedLineEdit;
 class OptionsModel;
 class SendCoinsRecipient;
 
+namespace interfaces
+{
+class Node;
+}
+
 QT_BEGIN_NAMESPACE
+class QAbstractButton;
 class QAbstractItemView;
 class QDateTime;
 class QFont;
@@ -43,6 +50,8 @@ namespace GUIUtil
         UNCONFIRMED,
         /* Theme related blue color */
         BLUE,
+        /* Eye-friendly orange color */
+        ORANGE,
         /* Eye-friendly red color, e.g. Transaction list -- negative amount */
         RED,
         /* Eye-friendly green color */
@@ -51,18 +60,18 @@ namespace GUIUtil
         BAREADDRESS,
         /* Transaction list -- TX status decoration - open until date */
         TX_STATUS_OPENUNTILDATE,
-        /* Transaction list -- TX status decoration - offline */
-        TX_STATUS_OFFLINE,
-        /* Transaction list -- TX status decoration - danger, tx needs attention */
-        TX_STATUS_DANGER,
-        /* Transaction list -- TX status decoration - LockedByInstantSend color */
-        TX_STATUS_LOCKED,
         /* Background used for some widgets. Its slightly darker than the wallets frame background. */
         BACKGROUND_WIDGET,
         /* Border color used for some widgets. Its slightly brighter than BACKGROUND_WIDGET. */
         BORDER_WIDGET,
+        /* Border color of network statistics overlay in debug window. */
+        BORDER_NETSTATS,
+        /* Background color of network statistics overlay in debug window. */
+        BACKGROUND_NETSTATS,
         /* Pixel color of generated QR codes. */
         QR_PIXEL,
+        /* Alternative color for black/white icons. White part will be filled with this color by default. */
+        ICON_ALTERNATIVE_COLOR,
     };
 
     /* Enumeration of possible "styles" */
@@ -86,12 +95,17 @@ namespace GUIUtil
     /** Helper to get css style strings which are injected into rich text through qt */
     QString getThemedStyleQString(ThemedStyle style);
 
+    /** Helper to get an icon colorized with the given color (replaces black) and colorAlternative (replaces white)  */
+    QIcon getIcon(const QString& strIcon, ThemedColor color, ThemedColor colorAlternative, const QString& strIconPath = ICONS_PATH);
+    QIcon getIcon(const QString& strIcon, ThemedColor color = ThemedColor::BLUE, const QString& strIconPath = ICONS_PATH);
+
+    /** Helper to set an icon for a button with the given color (replaces black) and colorAlternative (replaces white). */
+    void setIcon(QAbstractButton* button, const QString& strIcon, ThemedColor color, ThemedColor colorAlternative, const QSize& size);
+    void setIcon(QAbstractButton* button, const QString& strIcon, ThemedColor color = ThemedColor::BLUE, const QSize& size = QSize(BUTTON_ICONSIZE, BUTTON_ICONSIZE));
+
     // Create human-readable string from date
     QString dateTimeStr(const QDateTime &datetime);
     QString dateTimeStr(qint64 nTime);
-
-    // Return a monospace font
-    QFont fixedPitchFont();
 
     // Set up widgets for address and amounts
     void setupAddressWidget(QValidatedLineEdit *widget, QWidget *parent, bool fAllowURI = false);
@@ -107,7 +121,7 @@ namespace GUIUtil
     QString formatBitcoinURI(const SendCoinsRecipient &info);
 
     // Returns true if given address+amount meets "dust" definition
-    bool isDust(const QString& address, const CAmount& amount);
+    bool isDust(interfaces::Node& node, const QString& address, const CAmount& amount);
 
     // HTML escaping for rich text controls
     QString HtmlEscape(const QString& str, bool fMultiLine=false);
@@ -261,6 +275,9 @@ namespace GUIUtil
     /** Return the name of the default theme `*/
     const QString getDefaultTheme();
 
+    /** Check if the given theme name is valid or not */
+    const bool isValidTheme(const QString& strTheme);
+
     /** Updates the widgets stylesheet and adds it to the list of ui debug elements.
     Beeing on that list means the stylesheet of the widget gets updated if the
     related css files has been changed if -debug-ui mode is active. */
@@ -319,9 +336,6 @@ namespace GUIUtil
         issues loading variations of montserrat in css it also keeps track of the set fonts to update on
         theme changes. */
     void setFont(const std::vector<QWidget*>& vecWidgets, FontWeight weight, int nPointSize = -1, bool fItalic = false);
-
-    /** Workaround to set a fixed pitch font in traditional theme while keeping track of font updates */
-    void setFixedPitchFont(const std::vector<QWidget*>& vecWidgets);
 
     /** Update the font of all widgets where a custom font has been set with
         GUIUtil::setFont */

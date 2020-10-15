@@ -7,8 +7,6 @@
 
 #include <privatesend/privatesend-util.h>
 #include <privatesend/privatesend.h>
-#include <wallet/wallet.h>
-
 #include <evo/deterministicmns.h>
 
 class CPrivateSendClientOptions;
@@ -54,9 +52,11 @@ static const int PRIVATESEND_DENOM_OUTPUTS_THRESHOLD = 500;
 static const int PRIVATESEND_KEYS_THRESHOLD_WARNING = 100;
 // Stop mixing completely, it's too dangerous to continue when we have only this many keys left
 static const int PRIVATESEND_KEYS_THRESHOLD_STOP = 50;
+// Pseudorandomly mix up to this many times in addition to base round count
+static const int PRIVATESEND_RANDOM_ROUNDS = 3;
 
 // The main object for accessing mixing
-extern std::map<const std::string, CPrivateSendClientManager*> privateSendClientManagers;
+extern std::map<const std::string, std::shared_ptr<CPrivateSendClientManager>> privateSendClientManagers;
 
 // The object to track mixing queues
 extern CPrivateSendClientQueueManager privateSendClientQueueManager;
@@ -87,7 +87,7 @@ public:
 
     CService GetAddr() { return addr; }
     CPrivateSendAccept GetDSA() { return dsa; }
-    bool IsExpired() { return GetTime() - nTimeCreated > TIMEOUT; }
+    bool IsExpired() const { return GetTime() - nTimeCreated > TIMEOUT; }
 
     friend bool operator==(const CPendingDsaRequest& a, const CPendingDsaRequest& b)
     {
@@ -117,15 +117,15 @@ private:
 
     CKeyHolderStorage keyHolderStorage; // storage for keys used in PrepareDenominate
 
-    CWallet* mixingWallet;
+    CWallet& mixingWallet;
 
     /// Create denominations
-    bool CreateDenominated(CAmount nBalanceToDenominate, CConnman& connman);
-    bool CreateDenominated(CAmount nBalanceToDenominate, const CompactTallyItem& tallyItem, bool fCreateMixingCollaterals, CConnman& connman);
+    bool CreateDenominated(CAmount nBalanceToDenominate);
+    bool CreateDenominated(CAmount nBalanceToDenominate, const CompactTallyItem& tallyItem, bool fCreateMixingCollaterals);
 
     /// Split up large inputs or make fee sized inputs
-    bool MakeCollateralAmounts(CConnman& connman);
-    bool MakeCollateralAmounts(const CompactTallyItem& tallyItem, bool fTryDenominated, CConnman& connman);
+    bool MakeCollateralAmounts();
+    bool MakeCollateralAmounts(const CompactTallyItem& tallyItem, bool fTryDenominated);
 
     bool JoinExistingQueue(CAmount nBalanceNeedsAnonymized, CConnman& connman);
     bool StartNewQueue(CAmount nBalanceNeedsAnonymized, CConnman& connman);
@@ -152,7 +152,7 @@ private:
     void SetNull();
 
 public:
-    CPrivateSendClientSession(CWallet* pwallet) :
+    CPrivateSendClientSession(CWallet& pwallet) :
         vecOutPointLocked(),
         strLastMessage(),
         strAutoDenomResult(),
@@ -202,6 +202,10 @@ public:
 class CPrivateSendClientManager
 {
 private:
+    CPrivateSendClientManager() = delete;
+    CPrivateSendClientManager(CPrivateSendClientManager const&) = delete;
+    CPrivateSendClientManager& operator=(CPrivateSendClientManager const&) = delete;
+
     // Keep track of the used Masternodes
     std::vector<COutPoint> vecMasternodesUsed;
 
@@ -209,25 +213,27 @@ private:
     std::deque<CPrivateSendClientSession> deqSessions;
     mutable CCriticalSection cs_deqsessions;
 
+    bool fMixing{false};
+
     int nCachedLastSuccessBlock;
     int nMinBlocksToWait; // how many blocks to wait after one successful mixing tx in non-multisession mode
     std::string strAutoDenomResult;
 
-    CWallet* mixingWallet;
+    CWallet& mixingWallet;
 
     // Keep track of current block height
     int nCachedBlockHeight;
 
-    bool WaitForAnotherBlock();
+    bool WaitForAnotherBlock() const;
 
     // Make sure we have enough keys since last backup
     bool CheckAutomaticBackup();
 
 public:
-    int nCachedNumBlocks;    //used for the overview screen
-    bool fCreateAutoBackups; //builtin support for automatic backups
+    int nCachedNumBlocks;    // used for the overview screen
+    bool fCreateAutoBackups; // builtin support for automatic backups
 
-    CPrivateSendClientManager() :
+    CPrivateSendClientManager(CWallet& wallet) :
         vecMasternodesUsed(),
         deqSessions(),
         nCachedLastSuccessBlock(0),
@@ -236,13 +242,13 @@ public:
         nCachedBlockHeight(0),
         nCachedNumBlocks(std::numeric_limits<int>::max()),
         fCreateAutoBackups(true),
-        mixingWallet(nullptr)
+        mixingWallet(wallet)
     {
     }
 
     void ProcessMessage(CNode* pfrom, const std::string& strCommand, CDataStream& vRecv, CConnman& connman, bool enable_bip61);
 
-    bool StartMixing(CWallet* pwallet);
+    bool StartMixing();
     void StopMixing();
     bool IsMixing() const;
     void ResetPool();
@@ -280,6 +286,7 @@ class CPrivateSendClientOptions
 public:
     static int GetSessions() { return CPrivateSendClientOptions::Get().nPrivateSendSessions; }
     static int GetRounds() { return CPrivateSendClientOptions::Get().nPrivateSendRounds; }
+    static int GetRandomRounds() { return CPrivateSendClientOptions::Get().nPrivateSendRandomRounds; }
     static int GetAmount() { return CPrivateSendClientOptions::Get().nPrivateSendAmount; }
     static int GetDenomsGoal() { return CPrivateSendClientOptions::Get().nPrivateSendDenomsGoal; }
     static int GetDenomsHardCap() { return CPrivateSendClientOptions::Get().nPrivateSendDenomsHardCap; }
@@ -289,8 +296,8 @@ public:
     static void SetRounds(int nRounds);
     static void SetAmount(CAmount amount);
 
-    static int IsEnabled() { return CPrivateSendClientOptions::Get().fEnablePrivateSend; }
-    static int IsMultiSessionEnabled() { return CPrivateSendClientOptions::Get().fPrivateSendMultiSession; }
+    static bool IsEnabled() { return CPrivateSendClientOptions::Get().fEnablePrivateSend; }
+    static bool IsMultiSessionEnabled() { return CPrivateSendClientOptions::Get().fPrivateSendMultiSession; }
 
     static void GetJsonInfo(UniValue& obj);
 
@@ -301,6 +308,7 @@ private:
     CCriticalSection cs_ps_options;
     int nPrivateSendSessions;
     int nPrivateSendRounds;
+    int nPrivateSendRandomRounds;
     int nPrivateSendAmount;
     int nPrivateSendDenomsGoal;
     int nPrivateSendDenomsHardCap;
@@ -309,6 +317,7 @@ private:
 
     CPrivateSendClientOptions() :
         nPrivateSendRounds(DEFAULT_PRIVATESEND_ROUNDS),
+        nPrivateSendRandomRounds(PRIVATESEND_RANDOM_ROUNDS),
         nPrivateSendAmount(DEFAULT_PRIVATESEND_AMOUNT),
         nPrivateSendDenomsGoal(DEFAULT_PRIVATESEND_DENOMS_GOAL),
         nPrivateSendDenomsHardCap(DEFAULT_PRIVATESEND_DENOMS_HARDCAP),
